@@ -1,11 +1,11 @@
 package org.iofstorm.tengu.tengutravels.model;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonProperty;
-import org.apache.commons.lang3.builder.ToStringBuilder;
 
 @JsonIgnoreProperties(ignoreUnknown = true)
-public class Visit {
+public class Visit extends Entity {
     // 32 bit int unique
     private Integer id;
 
@@ -23,6 +23,18 @@ public class Visit {
 
     // int 0 - 5
     private Integer mark;
+
+    @JsonIgnore
+    private String locationCountry;
+
+    @JsonIgnore
+    private Integer locationDistance;
+
+    @JsonIgnore
+    private Integer userAge;
+
+    @JsonIgnore
+    private String userGender;
 
     public Integer getId() {
         return id;
@@ -64,14 +76,35 @@ public class Visit {
         this.mark = mark;
     }
 
-    @Override
-    public String toString() {
-        return new ToStringBuilder(this)
-                .append("id", id)
-                .append("locationId", locationId)
-                .append("userId", userId)
-                .append("visitedAt", visitedAt)
-                .append("mark", mark)
-                .build();
+    public String getLocationCountry() {
+        return locationCountry;
+    }
+
+    public void setLocationCountry(String locationCountry) {
+        this.locationCountry = locationCountry;
+    }
+
+    public Integer getLocationDistance() {
+        return locationDistance;
+    }
+
+    public void setLocationDistance(Integer locationDistance) {
+        this.locationDistance = locationDistance;
+    }
+
+    public Integer getUserAge() {
+        return userAge;
+    }
+
+    public void setUserAge(Integer userAge) {
+        this.userAge = userAge;
+    }
+
+    public String getUserGender() {
+        return userGender;
+    }
+
+    public void setUserGender(String userGender) {
+        this.userGender = userGender;
     }
 }

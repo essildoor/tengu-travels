@@ -2,7 +2,6 @@ package org.iofstorm.tengu.tengutravels.controller;
 
 import org.iofstorm.tengu.tengutravels.model.Entity;
 import org.iofstorm.tengu.tengutravels.model.User;
-import org.iofstorm.tengu.tengutravels.model.Visit;
 import org.iofstorm.tengu.tengutravels.service.UserService;
 import org.iofstorm.tengu.tengutravels.service.VisitService;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -14,12 +13,14 @@ import org.springframework.web.bind.annotation.RequestMethod;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
-import java.util.List;
 import java.util.Objects;
 import java.util.concurrent.Future;
 
+import static org.iofstorm.tengu.tengutravels.Constants.COUNTRY_LENGTH;
 import static org.iofstorm.tengu.tengutravels.Constants.NOT_FOUND;
 import static org.iofstorm.tengu.tengutravels.Constants.OK;
+import static org.iofstorm.tengu.tengutravels.Constants.VISITED_AT_MAX;
+import static org.iofstorm.tengu.tengutravels.Constants.VISITED_AT_MIN;
 
 @RestController
 @RequestMapping("/users")
@@ -38,15 +39,17 @@ public class UserController {
 
     @RequestMapping(method = RequestMethod.GET, path = "/{userId}")
     public ResponseEntity<Entity> getUser(@PathVariable("userId") Integer userId) {
+        if (userId == null) return controllerHelper.badRequestResponse();
         return userService.getUser(userId).<ResponseEntity<Entity>>map(ResponseEntity::ok).orElseGet(controllerHelper::badRequestResponse);
     }
 
     @RequestMapping(method = RequestMethod.GET, path = "/{id}/visits")
-    public Future<List<Visit>> getUserVisits(@PathVariable("userId") Integer userId,
-                                                             @RequestParam("fromDate") Long fromDate,
-                                                             @RequestParam("toDate") Long toDate,
-                                                             @RequestParam("country") String country,
-                                                             @RequestParam("toDistance") Integer toDistance) {
+    public Future<ResponseEntity<Entity>> getUserVisits(@PathVariable("userId") Integer userId,
+                                                        @RequestParam("fromDate") Long fromDate,
+                                                        @RequestParam("toDate") Long toDate,
+                                                        @RequestParam("country") String country,
+                                                        @RequestParam("toDistance") Integer toDistance) {
+        if (!validateGetUserVisitsParams(userId, fromDate, toDate, country)) return controllerHelper.futureBadRequest();
         return visitService.getVisits(userId, fromDate, toDate, country, toDistance);
     }
 
@@ -56,8 +59,9 @@ public class UserController {
     }
 
     @RequestMapping(method = RequestMethod.POST, path = "/{userId}")
-    public ResponseEntity<Entity> updateUser(@RequestBody User user) {
-        int status = userService.updateUser(user);
+    public ResponseEntity<Entity> updateUser(@PathVariable("userId") Integer userId, @RequestBody User user) {
+        if (userId == null) return controllerHelper.badRequestResponse();
+        int status = userService.updateUser(userId, user);
         ResponseEntity<Entity> response;
         switch (status) {
             case OK: {
@@ -72,5 +76,14 @@ public class UserController {
                 response = controllerHelper.badRequestResponse();
         }
         return response;
+    }
+
+    private boolean validateGetUserVisitsParams(Integer userId, Long fromDate, Long toDate, String country) {
+        if (userId == null) return false;
+        if (fromDate != null && (fromDate < VISITED_AT_MIN || fromDate > VISITED_AT_MAX)) return false;
+        if (toDate != null && (toDate < VISITED_AT_MIN || toDate > VISITED_AT_MAX)) return false;
+        if (fromDate != null && toDate != null && fromDate > toDate) return false;
+        if (country != null && country.length() > COUNTRY_LENGTH) return false;
+        return true;
     }
 }

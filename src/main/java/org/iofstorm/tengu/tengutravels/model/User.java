@@ -1,5 +1,6 @@
 package org.iofstorm.tengu.tengutravels.model;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import org.apache.commons.lang3.builder.ToStringBuilder;
@@ -26,6 +27,9 @@ public class User extends Entity {
     // long ms from 1970
     @JsonProperty("birth_date")
     private Long birthDate;
+
+    @JsonIgnore
+    private int age;
 
     public Integer getId() {
         return id;
@@ -73,6 +77,14 @@ public class User extends Entity {
 
     public void setBirthDate(Long birthDate) {
         this.birthDate = birthDate;
+    }
+
+    public int getAge() {
+        return age;
+    }
+
+    public void setAge(int age) {
+        this.age = age;
     }
 
     @Override

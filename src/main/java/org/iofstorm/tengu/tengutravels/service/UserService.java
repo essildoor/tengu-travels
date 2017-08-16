@@ -1,7 +1,7 @@
 package org.iofstorm.tengu.tengutravels.service;
 
 import org.iofstorm.tengu.tengutravels.model.User;
-import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.stereotype.Service;
 
 import java.util.HashMap;
 import java.util.List;
@@ -17,15 +17,24 @@ import static org.iofstorm.tengu.tengutravels.Constants.BAD_REQUEST;
 import static org.iofstorm.tengu.tengutravels.Constants.NOT_FOUND;
 import static org.iofstorm.tengu.tengutravels.Constants.OK;
 
+@Service
 public class UserService {
 
     private final Map<Integer, User> users;
     private final ReadWriteLock lock;
 
-    @Autowired
     public UserService() {
         users = new HashMap<>(10_000, .6f);
         lock = new ReentrantReadWriteLock(true);
+    }
+
+    public boolean exist(Integer id) {
+        lock.readLock().lock();
+        try {
+            return users.containsKey(id);
+        } finally {
+            lock.readLock().unlock();
+        }
     }
 
     public Optional<User> getUser(Integer id) {
@@ -60,20 +69,21 @@ public class UserService {
         }
     }
 
-    public int updateUser(User user) {
+    public int updateUser(Integer userId, User user) {
+        if (!exist(userId)) return NOT_FOUND;
         lock.readLock().lock();
         try {
-            if (!users.containsKey(user.getId())) {
+            if (!users.containsKey(userId)) {
                 return NOT_FOUND;
             } else {
                 lock.readLock().unlock();
                 lock.writeLock().lock();
                 try {
-                    if (!users.containsKey(user.getId())) {
+                    if (!users.containsKey(userId)) {
                         return NOT_FOUND;
                     } else {
                         if (validate(user, false)) {
-                            users.compute(user.getId(), (id, oldUser) -> remapUser(oldUser, user));
+                            users.compute(userId, (id, oldUser) -> remapUser(oldUser, user));
                         } else {
                             return BAD_REQUEST;
                         }

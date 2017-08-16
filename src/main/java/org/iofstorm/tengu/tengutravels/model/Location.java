@@ -4,7 +4,7 @@ import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import org.apache.commons.lang3.builder.ToStringBuilder;
 
 @JsonIgnoreProperties(ignoreUnknown = true)
-public class Location {
+public class Location extends Entity {
     // 32 bit int unique
     private Integer id;
 
