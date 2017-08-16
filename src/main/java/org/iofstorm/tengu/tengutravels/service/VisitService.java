@@ -15,9 +15,11 @@ import org.springframework.stereotype.Service;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.locks.ReadWriteLock;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
@@ -69,6 +71,31 @@ public class VisitService {
         }
     }
 
+    /**
+     * Loads chunk of visits to service storage
+     *
+     * Must be called after all users and locations has been loaded
+     *
+     * @param visitList list of visits
+     */
+    public void load(List<Visit> visitList) {
+        Set<Integer> userIds = new HashSet<>(visitList.size(), 1f);
+        Set<Integer> locationIds = new HashSet<>(visitList.size(), 1f);
+        visitList.forEach(vst -> {
+            userIds.add(vst.getUserId());
+            locationIds.add(vst.getLocationId());
+        });
+        Map<Integer, User> users = userService.getUsers(userIds);
+        Map<Integer, Location> locations = locationService.getLocations(locationIds);
+        visitList.forEach(vst -> enrichVisit(vst, users.get(vst.getUserId()), locations.get(vst.getLocationId())));
+        lock.writeLock().lock();
+        try {
+            visitList.forEach(this::saveNewVisit);
+        } finally {
+            lock.writeLock().lock();
+        }
+    }
+
     public int createVisit(Visit visit) {
         if (exist(visit.getId()) || validate(visit, true)) return BAD_REQUEST;
         lock.readLock().lock();
@@ -83,23 +110,8 @@ public class VisitService {
                     Optional<User> user = userService.getUser(visit.getUserId());
                     Optional<Location> location = locationService.getLocation(visit.getLocationId());
                     if (user.isPresent() && location.isPresent()) {
-                        // set data to visit
-                        visit.setUserAge(Utils.calcAge(user.get().getBirthDate()));
-                        visit.setUserGender(user.get().getGender());
-                        visit.setLocationCountry(location.get().getCountry());
-                        visit.setLocationDistance(location.get().getDistance());
-                        // save visit
-                        visits.put(visit.getId(), visit);
-                        visitsByUser.compute(visit.getUserId(), (userId, list) -> {
-                            if (list == null) list = new ArrayList<>();
-                            else list.add(visit);
-                            return list;
-                        });
-                        visitsByLocation.compute(visit.getLocationId(), (locId, list) -> {
-                            if (list == null) list = new ArrayList<>();
-                            else list.add(visit);
-                            return list;
-                        });
+                        enrichVisit(visit, user.get(), location.get());
+                        saveNewVisit(visit);
                     } else {
                         return BAD_REQUEST;
                     }
@@ -193,6 +205,34 @@ public class VisitService {
         } finally {
             lock.readLock().unlock();
         }
+    }
+
+    /**
+     * Saves enriched visit to service's storage
+     *
+     * Must be executed with write lock
+     *
+     * @param visit enriched visit to save
+     */
+    private void saveNewVisit(Visit visit) {
+        visits.put(visit.getId(), visit);
+        visitsByUser.compute(visit.getUserId(), (userId, list) -> {
+            if (list == null) list = new ArrayList<>();
+            else list.add(visit);
+            return list;
+        });
+        visitsByLocation.compute(visit.getLocationId(), (locId, list) -> {
+            if (list == null) list = new ArrayList<>();
+            else list.add(visit);
+            return list;
+        });
+    }
+
+    private void enrichVisit(Visit vst, User usr, Location loc) {
+        vst.setUserAge(Utils.calcAge(usr.getBirthDate()));
+        vst.setUserGender(usr.getGender());
+        vst.setLocationCountry(loc.getCountry());
+        vst.setLocationDistance(loc.getDistance());
     }
 
     private Visit remapVisit(Visit oldVisit, Visit newVisit) {

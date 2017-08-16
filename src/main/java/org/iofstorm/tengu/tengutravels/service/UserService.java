@@ -7,6 +7,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.locks.ReadWriteLock;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
@@ -43,6 +44,31 @@ public class UserService {
             return Optional.ofNullable(users.get(id));
         } finally {
             lock.readLock().unlock();
+        }
+    }
+
+    public Map<Integer, User> getUsers(Set<Integer> ids) {
+        lock.readLock().lock();
+        Map<Integer, User> res = new HashMap<>(ids.size(), 1f);
+        try {
+            ids.stream().map(users::get).forEach(usr -> res.put(usr.getId(), usr));
+        } finally {
+            lock.readLock().unlock();
+        }
+        return res;
+    }
+
+    /**
+     * Loads chunk of users to service's storage
+     *
+     * @param userList list of users
+     */
+    public void load(List<User> userList) {
+        lock.writeLock().lock();
+        try {
+            userList.forEach(usr -> users.put(usr.getId(), usr));
+        } finally {
+            lock.writeLock().unlock();
         }
     }
 

@@ -15,6 +15,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.locks.ReadWriteLock;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
@@ -55,6 +56,31 @@ public class LocationService {
             return Optional.ofNullable(locations.get(id));
         } finally {
             lock.readLock().unlock();
+        }
+    }
+
+    public Map<Integer, Location> getLocations(Set<Integer> ids) {
+        lock.readLock().lock();
+        Map<Integer, Location> res = new HashMap<>(ids.size(), 1f);
+        try {
+            ids.stream().map(locations::get).forEach(loc -> res.put(loc.getId(), loc));
+        } finally {
+            lock.readLock().unlock();
+        }
+        return res;
+    }
+
+    /**
+     * Loads chunk of locations to service's storage
+     *
+     * @param locationList list of locations
+     */
+    public void load(List<Location> locationList) {
+        lock.writeLock().lock();
+        try {
+            locationList.forEach(loc -> locations.put(loc.getId(), loc));
+        } finally {
+            lock.writeLock().unlock();
         }
     }
 
@@ -147,7 +173,8 @@ public class LocationService {
     private boolean validate(Location location, boolean isCreate) {
         if ((isCreate && location.getId() == null) || (!isCreate && location.getId() != null)) return false;
         if (isCreate && location.getPlace() == null) return false;
-        if ((isCreate && location.getCountry() == null) || location.getCountry().length() > COUNTRY_LENGTH) return false;
+        if ((isCreate && location.getCountry() == null) || location.getCountry().length() > COUNTRY_LENGTH)
+            return false;
         if ((isCreate && location.getCity() == null) || location.getCity().length() > CITY_LENGTH) return false;
         if (isCreate && location.getDistance() == null) return false;
         return true;
