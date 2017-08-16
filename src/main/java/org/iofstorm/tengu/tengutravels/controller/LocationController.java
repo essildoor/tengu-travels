@@ -23,7 +23,7 @@ import static org.iofstorm.tengu.tengutravels.Constants.VISITED_AT_MAX;
 import static org.iofstorm.tengu.tengutravels.Constants.VISITED_AT_MIN;
 
 @Controller
-@RequestMapping("/location")
+@RequestMapping("/locations")
 public class LocationController {
 
     private final LocationService locationService;
@@ -68,11 +68,11 @@ public class LocationController {
 
     @RequestMapping(method = RequestMethod.GET, path = "/{locationId}/avg")
     public Future<ResponseEntity<Entity>> getAverageMark(@PathVariable("locationId") Integer locationId,
-                                                       @RequestParam("fromDate") Long fromDate,
-                                                       @RequestParam("toDate") Long toDate,
-                                                       @RequestParam("fromAge") Integer fromAge,
-                                                       @RequestParam("toAge") Integer toAge,
-                                                       @RequestParam("gender") String gender) {
+                                                       @RequestParam(value = "fromDate", required = false) Long fromDate,
+                                                       @RequestParam(value = "toDate", required = false) Long toDate,
+                                                       @RequestParam(value = "fromAge", required = false) Integer fromAge,
+                                                       @RequestParam(value = "toAge", required = false) Integer toAge,
+                                                       @RequestParam(value = "gender", required = false) String gender) {
         if (!validateGetAverageMarkParams(locationId, fromDate, toDate, fromAge, toAge, gender)) controllerHelper.futureBadRequest();
         return locationService.getAverageMark(locationId, fromDate, toDate, fromAge, toAge, gender);
     }

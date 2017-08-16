@@ -45,10 +45,10 @@ public class UserController {
 
     @RequestMapping(method = RequestMethod.GET, path = "/{id}/visits")
     public Future<ResponseEntity<Entity>> getUserVisits(@PathVariable("userId") Integer userId,
-                                                        @RequestParam("fromDate") Long fromDate,
-                                                        @RequestParam("toDate") Long toDate,
-                                                        @RequestParam("country") String country,
-                                                        @RequestParam("toDistance") Integer toDistance) {
+                                                        @RequestParam(value = "fromDate", required = false) Long fromDate,
+                                                        @RequestParam(value = "toDate", required = false) Long toDate,
+                                                        @RequestParam(value = "country", required = false) String country,
+                                                        @RequestParam(value = "toDistance", required = false) Integer toDistance) {
         if (!validateGetUserVisitsParams(userId, fromDate, toDate, country)) return controllerHelper.futureBadRequest();
         return visitService.getVisits(userId, fromDate, toDate, country, toDistance);
     }

@@ -92,7 +92,7 @@ public class VisitService {
         try {
             visitList.forEach(this::saveNewVisit);
         } finally {
-            lock.writeLock().lock();
+            lock.writeLock().unlock();
         }
     }
 
