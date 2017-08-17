@@ -4,12 +4,14 @@ import java.time.LocalDate;
 import java.time.ZoneId;
 
 public final class Constants {
+    public static final double ZERO_DOUBLE = 0.0d;
+
     private Constants() {}
 
     // response codes
-    public static final int OK = 200;
-    public static final int BAD_REQUEST = 400;
-    public static final int NOT_FOUND = 404;
+    public static final Integer OK = 200;
+    public static final Integer BAD_REQUEST = 400;
+    public static final Integer NOT_FOUND = 404;
 
     // user constants
     public static final Integer EMAIL_LENGTH = 100;

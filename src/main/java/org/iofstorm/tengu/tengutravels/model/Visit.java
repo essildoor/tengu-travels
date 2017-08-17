@@ -2,10 +2,18 @@ package org.iofstorm.tengu.tengutravels.model;
 
 import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
+import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.annotation.JsonProperty;
 
+@JsonInclude(JsonInclude.Include.NON_NULL)
 @JsonIgnoreProperties(ignoreUnknown = true)
-public class Visit extends Entity {
+public class Visit {
+    public static final String LOCATION_ID = "location";
+    public static final String USER_ID = "user";
+    public static final String VISITED_AT = "visited_at";
+    public static final String MARK = "mark";
+    public static final String ID = "id";
+
     // 32 bit int unique
     private Integer id;
 
@@ -29,6 +37,9 @@ public class Visit extends Entity {
 
     @JsonIgnore
     private Integer locationDistance;
+
+    @JsonIgnore
+    private String locationPlace;
 
     @JsonIgnore
     private Integer userAge;
@@ -90,6 +101,14 @@ public class Visit extends Entity {
 
     public void setLocationDistance(Integer locationDistance) {
         this.locationDistance = locationDistance;
+    }
+
+    public String getLocationPlace() {
+        return locationPlace;
+    }
+
+    public void setLocationPlace(String locationPlace) {
+        this.locationPlace = locationPlace;
     }
 
     public Integer getUserAge() {

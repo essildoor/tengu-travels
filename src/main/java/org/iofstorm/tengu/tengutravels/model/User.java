@@ -2,11 +2,20 @@ package org.iofstorm.tengu.tengutravels.model;
 
 import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
+import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import org.apache.commons.lang3.builder.ToStringBuilder;
 
+@JsonInclude(JsonInclude.Include.NON_NULL)
 @JsonIgnoreProperties(ignoreUnknown = true)
-public class User extends Entity {
+public class User {
+    public static final String ID = "id";
+    public static final String FIRST_NAME = "first_name";
+    public static final String LAST_NAME = "last_name";
+    public static final String GENDER = "gender";
+    public static final String BIRTH_DATE = "birth_date";
+    public static final String EMAIL = "email";
+
     // 32 bit int unique
     private Integer id;
 

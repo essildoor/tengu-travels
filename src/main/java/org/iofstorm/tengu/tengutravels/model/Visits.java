@@ -1,12 +1,9 @@
 package org.iofstorm.tengu.tengutravels.model;
 
-import com.fasterxml.jackson.annotation.JsonProperty;
-
 import java.util.List;
 
-public class Visits extends Entity {
+public class Visits {
 
-    @JsonProperty
     private List<Visit> visits;
 
     public List<Visit> getVisits() {

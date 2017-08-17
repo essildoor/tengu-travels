@@ -15,6 +15,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
 import javax.annotation.PostConstruct;
+import java.io.File;
 import java.io.FileInputStream;
 import java.io.IOException;
 import java.util.ArrayList;
@@ -59,6 +60,11 @@ public class DataLoader {
 
     @PostConstruct
     public void loadData() throws IOException {
+        if (!new File(zipFilePath).exists()) {
+            log.warn("data file {} not found", zipFilePath);
+            return;
+        }
+
         log.debug("start loading data from {}", zipFilePath);
         long startTs = System.currentTimeMillis();
 

@@ -1,10 +1,18 @@
 package org.iofstorm.tengu.tengutravels.model;
 
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
+import com.fasterxml.jackson.annotation.JsonInclude;
 import org.apache.commons.lang3.builder.ToStringBuilder;
 
+@JsonInclude(JsonInclude.Include.NON_NULL)
 @JsonIgnoreProperties(ignoreUnknown = true)
-public class Location extends Entity {
+public class Location {
+    public static final String ID = "id";
+    public static final String PLACE = "place";
+    public static final String COUNTRY = "country";
+    public static final String CITY = "city";
+    public static final String DISTANCE = "distance";
+
     // 32 bit int unique
     private Integer id;
 

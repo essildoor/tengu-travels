@@ -6,10 +6,13 @@
         </Console>
     </Appenders>
     <Loggers>
-        <Logger name="org.iofstorm.tengu" level="warn" additivity="false">
+        <Logger name="org.iofstorm.tengu.tengutravels.service.LocationService" level="info" additivity="false">
             <AppenderRef ref="Console"/>
         </Logger>
-        <Root level="error">
+        <Logger name="org.iofstorm.tengu.tengutravels" level="debug" additivity="false">
+            <AppenderRef ref="Console"/>
+        </Logger>
+        <Root level="warn">
             <AppenderRef ref="Console"/>
         </Root>
     </Loggers>

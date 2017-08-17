@@ -4,7 +4,7 @@ import com.fasterxml.jackson.annotation.JsonProperty;
 
 import java.math.BigDecimal;
 
-public class Mark extends Entity {
+public class Mark {
 
     @JsonProperty
     private Double mark;

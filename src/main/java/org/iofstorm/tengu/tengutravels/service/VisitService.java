@@ -2,14 +2,14 @@ package org.iofstorm.tengu.tengutravels.service;
 
 import org.apache.commons.collections4.CollectionUtils;
 import org.iofstorm.tengu.tengutravels.Utils;
-import org.iofstorm.tengu.tengutravels.model.Entity;
 import org.iofstorm.tengu.tengutravels.model.Location;
+import org.iofstorm.tengu.tengutravels.model.ShortVisit;
+import org.iofstorm.tengu.tengutravels.model.ShortVisits;
 import org.iofstorm.tengu.tengutravels.model.User;
 import org.iofstorm.tengu.tengutravels.model.Visit;
-import org.iofstorm.tengu.tengutravels.model.Visits;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.http.HttpStatus;
-import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
@@ -23,17 +23,21 @@ import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.locks.ReadWriteLock;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
-import java.util.stream.Collectors;
-import java.util.stream.Stream;
 
 import static org.iofstorm.tengu.tengutravels.Constants.BAD_REQUEST;
 import static org.iofstorm.tengu.tengutravels.Constants.NOT_FOUND;
 import static org.iofstorm.tengu.tengutravels.Constants.OK;
 import static org.iofstorm.tengu.tengutravels.Constants.VISITED_AT_MAX;
 import static org.iofstorm.tengu.tengutravels.Constants.VISITED_AT_MIN;
+import static org.iofstorm.tengu.tengutravels.model.Visit.ID;
+import static org.iofstorm.tengu.tengutravels.model.Visit.LOCATION_ID;
+import static org.iofstorm.tengu.tengutravels.model.Visit.MARK;
+import static org.iofstorm.tengu.tengutravels.model.Visit.USER_ID;
+import static org.iofstorm.tengu.tengutravels.model.Visit.VISITED_AT;
 
 @Service
 public class VisitService {
+    private static final Logger log = LoggerFactory.getLogger(VisitService.class);
 
     private final Map<Integer, Visit> visits;
     private final Map<Integer, List<Visit>> visitsByUser;
@@ -47,37 +51,111 @@ public class VisitService {
     private LocationService locationService;
 
     public VisitService() {
-        visits = new HashMap<>(100_000, .65f);
-        visitsByUser = new HashMap<>(1000);
-        visitsByLocation = new HashMap<>(1000);
+        visits = new HashMap<>(500_000);
+        visitsByUser = new HashMap<>(50_000);
+        visitsByLocation = new HashMap<>(50_000);
         lock = new ReentrantReadWriteLock(true);
-    }
-
-    public boolean exist(Integer id) {
-        lock.readLock().lock();
-        try {
-            return visits.containsKey(id);
-        } finally {
-            lock.readLock().unlock();
-        }
     }
 
     public Optional<Visit> getVisit(Integer id) {
         lock.readLock().lock();
         try {
-            return Optional.ofNullable(visits.get(id));
+            Visit v = visits.get(id);
+            if (v == null) log.warn("getting visit by id={}, got null, visits size={}", id, visits.size());
+            return Optional.ofNullable(v);
         } finally {
             lock.readLock().unlock();
         }
     }
 
-    /**
-     * Loads chunk of visits to service storage
-     *
-     * Must be called after all users and locations has been loaded
-     *
-     * @param visitList list of visits
-     */
+    public CompletableFuture<Integer> createVisitAsync(Visit visit) {
+        return CompletableFuture.supplyAsync(() -> {
+            if (!validateOnCreate(visit)) return BAD_REQUEST;
+            lock.readLock().lock();
+            try {
+                if (visits.containsKey(visit.getId())) return BAD_REQUEST;
+                lock.readLock().unlock();
+                lock.writeLock().lock();
+                try {
+                    if (visits.containsKey(visit.getId())) {
+                        return BAD_REQUEST;
+                    } else {
+                        Optional<User> user = userService.getUser(visit.getUserId());
+                        Optional<Location> location = locationService.getLocation(visit.getLocationId());
+                        if (user.isPresent() && location.isPresent()) {
+                            enrichVisit(visit, user.get(), location.get());
+                            saveNewVisit(visit);
+                            return OK;
+                        } else {
+                            return BAD_REQUEST;
+                        }
+                    }
+                } finally {
+                    lock.readLock().lock();
+                    lock.writeLock().unlock();
+                }
+            } finally {
+                lock.readLock().unlock();
+            }
+        });
+    }
+
+    public CompletableFuture<Integer> updateVisitAsync(Integer visitId, Map<String, Object> visit) {
+        return CompletableFuture.supplyAsync(() -> {
+            lock.readLock().lock();
+            try {
+                if (!visits.containsKey(visitId)) {
+                    return NOT_FOUND;
+                } else {
+                    lock.readLock().unlock();
+                    lock.writeLock().lock();
+                    try {
+                        if (!visits.containsKey(visitId)) {
+                            return NOT_FOUND;
+                        } else {
+                            if (validateOnUpdate(visit)) {
+                                Optional<User> user = userService.getUser((Integer) visit.get(USER_ID));
+                                Optional<Location> location = locationService.getLocation((Integer) visit.get(LOCATION_ID));
+                                if (user.isPresent() && location.isPresent()) {
+                                    visits.compute(visitId, (id, oldVisit) -> remapVisit(oldVisit, visit));
+                                    return OK;
+                                } else {
+                                    return BAD_REQUEST;
+                                }
+                            } else {
+                                return BAD_REQUEST;
+                            }
+                        }
+                    } finally {
+                        lock.readLock().lock();
+                        lock.writeLock().unlock();
+                    }
+                }
+            } finally {
+                lock.readLock().unlock();
+            }
+        });
+    }
+
+    public CompletableFuture<Optional<ShortVisits>> getUserVisitsAsync(Integer userId, Long fromDate, Long toDate, String country, Integer toDistance) {
+        return CompletableFuture.supplyAsync(() -> {
+            List<Visit> userVisits = getVisitsByUser(userId); // r/w lock
+            List<ShortVisit> result = new ArrayList<>();
+            for (Visit v : userVisits) {
+                if (fromDate != null && v.getVisitedAt() < fromDate) continue;
+                if (toDate != null && v.getVisitedAt() > toDate) continue;
+                if (country != null && !country.equals(v.getLocationCountry())) continue;
+                if (toDistance != null && v.getLocationDistance() > toDistance) continue;
+                result.add(ShortVisit.fromVisit(v));
+            }
+            result.sort((o1, o2) -> (int) (o1.getVisitedAt() - o2.getVisitedAt()));
+            ShortVisits shortVisits = new ShortVisits();
+            shortVisits.setVisits(result);
+            return Optional.of(shortVisits);
+        });
+    }
+
+    // used for data loading
     public void load(List<Visit> visitList) {
         Set<Integer> userIds = new HashSet<>(visitList.size(), 1f);
         Set<Integer> locationIds = new HashSet<>(visitList.size(), 1f);
@@ -88,6 +166,7 @@ public class VisitService {
         Map<Integer, User> users = userService.getUsers(userIds);
         Map<Integer, Location> locations = locationService.getLocations(locationIds);
         visitList.forEach(vst -> enrichVisit(vst, users.get(vst.getUserId()), locations.get(vst.getLocationId())));
+
         lock.writeLock().lock();
         try {
             visitList.forEach(this::saveNewVisit);
@@ -96,29 +175,52 @@ public class VisitService {
         }
     }
 
-    public int createVisit(Visit visit) {
-        if (exist(visit.getId()) || validate(visit, true)) return BAD_REQUEST;
+    // updates visits on location update
+    CompletableFuture<Void> updateVisitWithLocationAsync(Integer locId, Map<String, Object> loc) {
+        return CompletableFuture.runAsync(() -> {
+            // todo check if exist with read lock first
+            lock.writeLock().lock();
+            try {
+                for (Visit vst : visitsByLocation.get(locId)) {
+                    if (loc.containsKey(Location.COUNTRY)) vst.setLocationCountry((String) loc.get(Location.COUNTRY));
+                    if (loc.containsKey(Location.PLACE)) vst.setLocationPlace((String) loc.get(Location.PLACE));
+                    if (loc.containsKey(Location.DISTANCE))
+                        vst.setLocationDistance((Integer) loc.get(Location.DISTANCE));
+                }
+            } finally {
+                lock.writeLock().unlock();
+            }
+        });
+    }
+
+    // updates visits on user update
+    CompletableFuture<Void> updateVisitWithUserAsync(Integer userId, Map<String, Object> user) {
+        return CompletableFuture.runAsync(() -> {
+            // todo check if exist with read lock first
+            lock.writeLock().lock();
+            try {
+                for (Visit vst : visitsByUser.get(userId)) {
+                    if (user.containsKey(User.GENDER)) vst.setUserGender((String) user.get(User.GENDER));
+                    if (user.containsKey(User.BIRTH_DATE))
+                        vst.setUserId(Utils.calcAge((Long) user.get(User.BIRTH_DATE)));
+                }
+            } finally {
+                lock.writeLock().unlock();
+            }
+        });
+    }
+
+    List<Visit> getVisitsByLocationId(Integer locId) {
         lock.readLock().lock();
         try {
-            if (visits.containsKey(visit.getId())) return BAD_REQUEST;
+            if (!visitsByLocation.containsKey(locId)) return Collections.emptyList();
             lock.readLock().unlock();
             lock.writeLock().lock();
             try {
-                if (visits.containsKey(visit.getId())) {
-                    return BAD_REQUEST;
-                } else {
-                    Optional<User> user = userService.getUser(visit.getUserId());
-                    Optional<Location> location = locationService.getLocation(visit.getLocationId());
-                    if (user.isPresent() && location.isPresent()) {
-                        enrichVisit(visit, user.get(), location.get());
-                        saveNewVisit(visit);
-                    } else {
-                        return BAD_REQUEST;
-                    }
-                }
-                lock.readLock().lock();
-                return OK;
+                List<Visit> locationVisits = visitsByLocation.get(locId);
+                return CollectionUtils.isNotEmpty(locationVisits) ? new ArrayList<>(locationVisits) : Collections.emptyList();
             } finally {
+                lock.readLock().lock();
                 lock.writeLock().unlock();
             }
         } finally {
@@ -126,94 +228,25 @@ public class VisitService {
         }
     }
 
-    public int updateVisit(Integer visitId, Visit visit) {
-        if (!exist(visitId)) return NOT_FOUND;
+    private List<Visit> getVisitsByUser(Integer userId) {
         lock.readLock().lock();
         try {
-            if (!visits.containsKey(visitId)) {
-                return NOT_FOUND;
-            } else {
-                lock.readLock().unlock();
-                lock.writeLock().lock();
-                try {
-                    if (!visits.containsKey(visitId)) {
-                        return NOT_FOUND;
-                    } else {
-                        if (validate(visit, false)) {
-                            visits.compute(visitId, (id, oldVisit) -> remapVisit(oldVisit, visit));
-                        } else {
-                            return BAD_REQUEST;
-                        }
-                    }
-                    lock.readLock().lock();
-                    return OK;
-                } finally {
-                    lock.writeLock().unlock();
-                }
+            if (!visits.containsKey(userId)) return Collections.emptyList();
+            lock.readLock().unlock();
+            lock.writeLock().lock();
+            try {
+                if (!visits.containsKey(userId)) return Collections.emptyList();
+                List<Visit> userVisits = visitsByUser.get(userId);
+                return CollectionUtils.isNotEmpty(userVisits) ? new ArrayList<>(userVisits) : Collections.emptyList();
+            } finally {
+                lock.readLock().lock();
+                lock.writeLock().unlock();
             }
         } finally {
             lock.readLock().unlock();
         }
     }
 
-    public CompletableFuture<ResponseEntity<Entity>> getVisits(Integer userId, Long fromDate, Long toDate, String country, Integer toDistance) {
-        return CompletableFuture.supplyAsync(() -> {
-            if (!exist(userId)) return ResponseEntity.status(HttpStatus.NOT_FOUND).build();
-            lock.readLock().lock();
-            List<Visit> userVisits = getVisitsByUserId(userId);
-            List<Visit> result;
-            if (CollectionUtils.isNotEmpty(userVisits)) {
-                Stream<Visit> vs = userVisits.stream();
-                if (fromDate != null) vs = vs.filter(visit -> visit.getVisitedAt() >= fromDate);
-                if (toDate != null) vs = vs.filter(visit -> visit.getVisitedAt() <= toDate);
-                if (country != null || toDistance != null) {
-                    vs = vs.filter(visit -> {
-                        boolean res = true;
-                        Optional<Location> locationOptional = locationService.getLocation(visit.getLocationId());
-                        if (locationOptional.isPresent()) {
-                            Location loc = locationOptional.get();
-                            if (country != null) res = country.equals(loc.getCountry());
-                            if (toDistance != null) res = res && toDistance <= loc.getDistance();
-                        }
-                        return res;
-                    });
-                }
-                vs = vs.sorted((o1, o2) -> (int)(o1.getVisitedAt() - o2.getVisitedAt()));
-                result = vs.collect(Collectors.toList());
-            } else {
-                result = Collections.emptyList();
-            }
-            Visits visits = new Visits();
-            visits.setVisits(result);
-            return ResponseEntity.ok(visits);
-        });
-    }
-
-    public List<Visit> getVisitsByUserId(Integer userId) {
-        lock.readLock().lock();
-        try {
-            return Optional.ofNullable(visitsByUser.get(userId)).orElse(Collections.emptyList());
-        } finally {
-            lock.readLock().unlock();
-        }
-    }
-
-    public List<Visit> getVisitsByLocationId(Integer locId) {
-        lock.readLock().lock();
-        try {
-            return Optional.ofNullable(visitsByLocation.get(locId)).orElse(Collections.emptyList());
-        } finally {
-            lock.readLock().unlock();
-        }
-    }
-
-    /**
-     * Saves enriched visit to service's storage
-     *
-     * Must be executed with write lock
-     *
-     * @param visit enriched visit to save
-     */
     private void saveNewVisit(Visit visit) {
         visits.put(visit.getId(), visit);
         visitsByUser.compute(visit.getUserId(), (userId, list) -> {
@@ -233,22 +266,64 @@ public class VisitService {
         vst.setUserGender(usr.getGender());
         vst.setLocationCountry(loc.getCountry());
         vst.setLocationDistance(loc.getDistance());
+        vst.setLocationPlace(loc.getPlace());
     }
 
-    private Visit remapVisit(Visit oldVisit, Visit newVisit) {
-        if (newVisit.getLocationId() != null) oldVisit.setLocationId(newVisit.getLocationId());
-        if (newVisit.getUserId() != null) oldVisit.setUserId(newVisit.getUserId());
-        if (newVisit.getVisitedAt() != null) oldVisit.setVisitedAt(newVisit.getVisitedAt());
-        if (newVisit.getMark() != null) oldVisit.setMark(newVisit.getMark());
+    private Visit remapVisit(Visit oldVisit, Map<String, Object> newVisit) {
+        if (newVisit.containsKey(LOCATION_ID)) oldVisit.setLocationId((Integer) newVisit.get(LOCATION_ID));
+        if (newVisit.containsKey(USER_ID)) oldVisit.setUserId((Integer) newVisit.get(USER_ID));
+        if (newVisit.containsKey(VISITED_AT)) oldVisit.setVisitedAt((Long) newVisit.get(VISITED_AT));
+        if (newVisit.containsKey(MARK)) oldVisit.setMark((Integer) newVisit.get(MARK));
         return oldVisit;
     }
 
-    private boolean validate(Visit visit, boolean isCreate) {
-        if ((!isCreate && visit.getId() != null) || (isCreate && visit.getId() == null)) return false;
-        if (isCreate && visit.getLocationId() == null) return false;
-        if (isCreate && visit.getUserId() == null) return false;
-        if ((isCreate && visit.getVisitedAt() == null) || (visit.getVisitedAt() < VISITED_AT_MIN || visit.getVisitedAt() > VISITED_AT_MAX)) return false;
-        if (visit.getMark() == null || (visit.getMark() < 0 || visit.getMark() > 5)) return false;
+    private boolean validateOnUpdate(Map<String, Object> visit) {
+        if (visit.containsKey(ID)) return false;
+        if (visit.containsKey(LOCATION_ID)) {
+            Object o = visit.get(LOCATION_ID);
+            if (o == null || !(o instanceof Integer)) return false;
+        }
+        if (visit.containsKey(USER_ID)) {
+            Object o = visit.get(USER_ID);
+            if (o == null || !(o instanceof Integer)) return false;
+        }
+        if (visit.containsKey(VISITED_AT)) {
+            Object o = visit.get(VISITED_AT);
+            if (o == null || !(o instanceof Long) || ((Long) o < VISITED_AT_MIN || (Long) o > VISITED_AT_MAX))
+                return false;
+        }
+        if (visit.containsKey(MARK)) {
+            Object o = visit.get(MARK);
+            if (o == null || !(o instanceof Integer) || ((Integer) o < 0 || (Integer) o > 5)) return false;
+        }
+        return true;
+    }
+
+    private boolean validateOnCreate(Visit visit) {
+        if (visit == null) {
+//            log.debug("visit validation failed: visit is null");
+            return false;
+        }
+        if (visit.getId() == null) {
+//            log.debug("visit validation failed: id={}, isCreate={}", visit.getId(), true);
+            return false;
+        }
+        if (visit.getLocationId() == null) {
+//            log.debug("visit validation failed: locationId={}, isCreate={}", visit.getLocationId(), true);
+            return false;
+        }
+        if (visit.getUserId() == null) {
+//            log.debug("visit validation failed: userId={}, isCreate={}", visit.getUserId(), true);
+            return false;
+        }
+        if (visit.getVisitedAt() == null || (visit.getVisitedAt() != null && (visit.getVisitedAt() < VISITED_AT_MIN || visit.getVisitedAt() > VISITED_AT_MAX))) {
+//            log.debug("visit validation failed: visitedAt={}, isCreate={}", visit.getVisitedAt(), true);
+            return false;
+        }
+        if (visit.getMark() == null || (visit.getMark() != null && (visit.getMark() < 0 || visit.getMark() > 5))) {
+//            log.debug("visit validation failed: visitedAt={}, isCreate={}", visit.getVisitedAt(), true);
+            return false;
+        }
         return true;
     }
 }
