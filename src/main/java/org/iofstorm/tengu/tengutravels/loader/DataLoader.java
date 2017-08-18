@@ -78,17 +78,17 @@ public class DataLoader {
                     String fileName = entry.getName();
                     Users users = objectMapper.readValue(zipIn, Users.class);
                     usersAndLocationsFutures.add(CompletableFuture.runAsync(() -> {
-                        log.debug("begin loading data from {}", fileName);
+//                        log.debug("begin loading data from {}", fileName);
                         userService.load(users.getUsers());
-                        log.debug("complete loading data from {}", fileName);
+//                        log.debug("complete loading data from {}", fileName);
                     }, executor));
                 } else if (entry.getName().startsWith("locations_")) {
                     String fileName = entry.getName();
                     Locations locations = objectMapper.readValue(zipIn, Locations.class);
                     usersAndLocationsFutures.add(CompletableFuture.runAsync(() -> {
-                        log.debug("begin loading data from {}", fileName);
+//                        log.debug("begin loading data from {}", fileName);
                         locationService.load(locations.getLocations());
-                        log.debug("complete loading data from {}", fileName);
+//                        log.debug("complete loading data from {}", fileName);
                     }, executor));
                 } else if (entry.getName().startsWith("visits_")) {
                     visitsList.put(entry.getName(), objectMapper.readValue(zipIn, Visits.class));
@@ -100,11 +100,11 @@ public class DataLoader {
         // wait until all of the users and locations are loaded and then start loading visits
         CompletableFuture.allOf(usersAndLocationsFutures.toArray(new CompletableFuture[usersAndLocationsFutures.size()]))
                 .thenRun(() -> visitsList.forEach((fileName, visits) -> CompletableFuture.runAsync(() -> {
-                    log.debug("begin loading data from {}", fileName);
+//                    log.debug("begin loading data from {}", fileName);
                     visitService.load(visits.getVisits());
-                    log.debug("complete loading data from {}", fileName);
+//                    log.debug("complete loading data from {}", fileName);
                 }, executor)))
-                .thenRun(() -> log.debug("all data was loaded. eta: {}", String.format("%.2f s", (System.currentTimeMillis() - startTs) / 1000f)));
+                .thenRun(() -> log.info("all data was loaded. eta: {}", String.format("%.2f s", (System.currentTimeMillis() - startTs) / 1000f)));
 
         executor.shutdownNow();
     }

@@ -129,10 +129,10 @@ public class UserService {
 
     // used for data loading
     Map<Integer, User> getUsers(Set<Integer> ids) {
+        final Map<Integer, User> res = new HashMap<>(ids.size(), 1f);
         lock.readLock().lock();
-        Map<Integer, User> res = new HashMap<>(ids.size(), 1f);
         try {
-            ids.stream().map(users::get).forEach(usr -> res.put(usr.getId(), usr));
+            for (Integer id : ids) res.put(id, users.get(id));
         } finally {
             lock.readLock().unlock();
         }

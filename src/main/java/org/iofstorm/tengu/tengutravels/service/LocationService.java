@@ -156,10 +156,10 @@ public class LocationService {
 
     // used for data loading
     Map<Integer, Location> getLocations(Set<Integer> ids) {
+        final Map<Integer, Location> res = new HashMap<>(ids.size(), 1f);
         lock.readLock().lock();
-        Map<Integer, Location> res = new HashMap<>(ids.size(), 1f);
         try {
-            ids.stream().map(locations::get).forEach(loc -> res.put(loc.getId(), loc));
+            for (Integer id : ids) res.put(id, locations.get(id));
         } finally {
             lock.readLock().unlock();
         }
