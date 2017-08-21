@@ -153,7 +153,6 @@ public class UserController {
         return ResponseEntity.ok("ok");
     }
 
-    //@ExceptionHandler({TypeMismatchException.class, HttpMediaTypeNotSupportedException.class, HttpMessageNotReadableException.class})
     @ExceptionHandler(Exception.class)
     public ResponseEntity<String> handleMyException(Exception exception, HttpServletRequest request) {
         if (exception instanceof HttpMessageNotReadableException) return controllerHelper.badRequest();

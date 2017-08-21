@@ -9,12 +9,14 @@ import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
+import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.stereotype.Controller;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestMethod;
+import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 
 import javax.servlet.http.HttpServletRequest;
 import java.util.Map;
@@ -103,10 +105,16 @@ public class VisitController {
         return ResponseEntity.ok("ok");
     }
 
-    //@ExceptionHandler({TypeMismatchException.class, HttpMediaTypeNotSupportedException.class, HttpMessageNotReadableException.class})
     @ExceptionHandler(Exception.class)
     public ResponseEntity<String> handleMyException(Exception exception, HttpServletRequest request) {
-        return controllerHelper.notFound();
+        if (exception instanceof HttpMessageNotReadableException) return controllerHelper.badRequest();
+        if (exception instanceof MethodArgumentTypeMismatchException) {
+            String basePath = request.getServletPath();
+            int i = request.getServletPath().indexOf('?');
+            if (i != -1) basePath = basePath.substring(0, i);
+            if (!basePath.matches("/visits/[0-9]+[/]?(new)?")) return controllerHelper.notFound();
+        }
+        return controllerHelper.badRequest();
     }
 
     private boolean validateOnCreate(Visit visit) {

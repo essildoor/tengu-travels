@@ -145,7 +145,6 @@ public class LocationController {
         return ResponseEntity.ok("ok");
     }
 
-    //@ExceptionHandler({TypeMismatchException.class, HttpMediaTypeNotSupportedException.class, HttpMessageNotReadableException.class})
     @ExceptionHandler(Exception.class)
     public ResponseEntity<String> handleMyException(Exception exception, HttpServletRequest request) {
         return controllerHelper.badRequest();
