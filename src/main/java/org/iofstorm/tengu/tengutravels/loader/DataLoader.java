@@ -2,6 +2,7 @@ package org.iofstorm.tengu.tengutravels.loader;
 
 import com.fasterxml.jackson.core.JsonParser;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import org.apache.commons.io.IOUtils;
 import org.iofstorm.tengu.tengutravels.model.Locations;
 import org.iofstorm.tengu.tengutravels.model.Users;
 import org.iofstorm.tengu.tengutravels.model.Visits;
@@ -18,6 +19,10 @@ import javax.annotation.PostConstruct;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.IOException;
+import java.nio.charset.Charset;
+import java.time.Instant;
+import java.time.LocalDateTime;
+import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -33,10 +38,14 @@ import java.util.zip.ZipInputStream;
 @Component
 public class DataLoader {
     private static final Logger log = LoggerFactory.getLogger(DataLoader.class);
-    private static final AtomicInteger THREAD_NUM = new AtomicInteger(1);
+
+    private static final AtomicInteger userCount = new AtomicInteger(0);
+    private static final AtomicInteger locationCount = new AtomicInteger(0);
+    private static final AtomicInteger visitCount = new AtomicInteger(0);
+
+    public static LocalDateTime NOW_TS;
 
     private final ObjectMapper objectMapper;
-    private final ExecutorService executor;
 
     @Value("${tengu.data.path}")
     private final String zipFilePath;
@@ -50,12 +59,42 @@ public class DataLoader {
     @Autowired
     private VisitService visitService;
 
+    private ExecutorService executor;
+
+
     @Autowired
-    public DataLoader(@Value("${tengu.data.path}") String zipFilePath) {
+    public DataLoader(@Value("${tengu.data.path}") String zipFilePath) throws IOException, InterruptedException {
         this.zipFilePath = Objects.requireNonNull(zipFilePath);
         objectMapper = new ObjectMapper();
         objectMapper.configure(JsonParser.Feature.AUTO_CLOSE_SOURCE, false);
-        executor = Executors.newFixedThreadPool(8, r -> new Thread(r, "loader-worker-" + THREAD_NUM.getAndDecrement()));
+
+        executor = Executors.newFixedThreadPool(4);
+
+        if (!new File(zipFilePath).exists()) {
+            log.warn("data file {} not found", zipFilePath);
+        } else {
+            try (ZipInputStream zipIn = new ZipInputStream(new FileInputStream(zipFilePath))) {
+                ZipEntry entry = zipIn.getNextEntry();
+                while (entry != null) {
+                    if (entry.getName().contains("txt")) log.info("found: {}", entry.getName());
+                    if (entry.getName().contains("options")) {
+                        Long ts = Long.valueOf(IOUtils.readLines(zipIn, Charset.defaultCharset()).get(0));
+
+                        log.info("read timestamp: {}", ts);
+
+                        NOW_TS = LocalDateTime.ofInstant(Instant.ofEpochSecond(ts), ZoneId.systemDefault());
+
+                        log.info("set NOW_TS to {}", NOW_TS);
+
+                        break;
+                    }
+                    zipIn.closeEntry();
+                    entry = zipIn.getNextEntry();
+                }
+            }
+        }
+
+        if (NOW_TS == null) NOW_TS = LocalDateTime.ofInstant(Instant.ofEpochSecond(1502881955L), ZoneId.systemDefault());
     }
 
     @PostConstruct
@@ -65,31 +104,25 @@ public class DataLoader {
             return;
         }
 
-        log.debug("start loading data from {}", zipFilePath);
+        //log.info("start loading data from {}", zipFilePath);
+
         long startTs = System.currentTimeMillis();
 
         List<CompletableFuture<Void>> usersAndLocationsFutures = new ArrayList<>();
         Map<String, Visits> visitsList = new HashMap<>();
+
         try (ZipInputStream zipIn = new ZipInputStream(new FileInputStream(zipFilePath))) {
             ZipEntry entry = zipIn.getNextEntry();
             // iterates over entries in the zip file
             while (entry != null) {
                 if (entry.getName().startsWith("users_")) {
-                    String fileName = entry.getName();
                     Users users = objectMapper.readValue(zipIn, Users.class);
-                    usersAndLocationsFutures.add(CompletableFuture.runAsync(() -> {
-//                        log.debug("begin loading data from {}", fileName);
-                        userService.load(users.getUsers());
-//                        log.debug("complete loading data from {}", fileName);
-                    }, executor));
+                    usersAndLocationsFutures.add(CompletableFuture.supplyAsync(() -> userService.load(users.getUsers()), executor)
+                            .thenAccept(userCount::addAndGet));
                 } else if (entry.getName().startsWith("locations_")) {
-                    String fileName = entry.getName();
                     Locations locations = objectMapper.readValue(zipIn, Locations.class);
-                    usersAndLocationsFutures.add(CompletableFuture.runAsync(() -> {
-//                        log.debug("begin loading data from {}", fileName);
-                        locationService.load(locations.getLocations());
-//                        log.debug("complete loading data from {}", fileName);
-                    }, executor));
+                    usersAndLocationsFutures.add(CompletableFuture.supplyAsync(() -> locationService.load(locations.getLocations()), executor)
+                            .thenAccept(locationCount::addAndGet));
                 } else if (entry.getName().startsWith("visits_")) {
                     visitsList.put(entry.getName(), objectMapper.readValue(zipIn, Visits.class));
                 }
@@ -98,14 +131,18 @@ public class DataLoader {
             }
         }
         // wait until all of the users and locations are loaded and then start loading visits
+        List<CompletableFuture<Void>> visitsFutures = new ArrayList<>(visitsList.size());
         CompletableFuture.allOf(usersAndLocationsFutures.toArray(new CompletableFuture[usersAndLocationsFutures.size()]))
-                .thenRun(() -> visitsList.forEach((fileName, visits) -> CompletableFuture.runAsync(() -> {
-//                    log.debug("begin loading data from {}", fileName);
-                    visitService.load(visits.getVisits());
-//                    log.debug("complete loading data from {}", fileName);
-                }, executor)))
-                .thenRun(() -> log.info("all data was loaded. eta: {}", String.format("%.2f s", (System.currentTimeMillis() - startTs) / 1000f)));
+                .thenRun(() -> visitsList.forEach((fileName, visits) ->
+                        visitsFutures.add(CompletableFuture.supplyAsync(() -> visitService.load(visits.getVisits()), executor)
+                                        .thenAccept(count -> visitCount.addAndGet(count)))));
 
-        executor.shutdownNow();
+        CompletableFuture.allOf(visitsFutures.toArray(new CompletableFuture[visitsFutures.size()]))
+                .thenRun(() -> {
+                    log.info("{} users were loaded", userCount.get());
+                    log.info("{} locations were loaded", locationCount.get());
+                    log.info("{} visits were loaded", visitCount.get());
+                    log.info("data was loaded in {} sec", String.format("%.3f", (System.currentTimeMillis() - startTs) / 1000f));
+                });
     }
 }

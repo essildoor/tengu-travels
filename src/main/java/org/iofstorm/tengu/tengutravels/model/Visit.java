@@ -126,4 +126,19 @@ public class Visit {
     public void setUserGender(String userGender) {
         this.userGender = userGender;
     }
+
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) return true;
+        if (o == null || getClass() != o.getClass()) return false;
+
+        Visit visit = (Visit) o;
+
+        return id.equals(visit.id);
+    }
+
+    @Override
+    public int hashCode() {
+        return id.hashCode();
+    }
 }

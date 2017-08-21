@@ -1,7 +1,6 @@
 package org.iofstorm.tengu.tengutravels.service;
 
 import org.apache.commons.collections4.CollectionUtils;
-import org.iofstorm.tengu.tengutravels.Utils;
 import org.iofstorm.tengu.tengutravels.model.Location;
 import org.iofstorm.tengu.tengutravels.model.ShortVisit;
 import org.iofstorm.tengu.tengutravels.model.ShortVisits;
@@ -18,22 +17,12 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
-import java.util.Optional;
 import java.util.Set;
-import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.locks.ReadWriteLock;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 
-import static org.iofstorm.tengu.tengutravels.Constants.BAD_REQUEST;
-import static org.iofstorm.tengu.tengutravels.Constants.NOT_FOUND;
-import static org.iofstorm.tengu.tengutravels.Constants.OK;
-import static org.iofstorm.tengu.tengutravels.Constants.VISITED_AT_MAX;
-import static org.iofstorm.tengu.tengutravels.Constants.VISITED_AT_MIN;
-import static org.iofstorm.tengu.tengutravels.model.Visit.ID;
-import static org.iofstorm.tengu.tengutravels.model.Visit.LOCATION_ID;
-import static org.iofstorm.tengu.tengutravels.model.Visit.MARK;
-import static org.iofstorm.tengu.tengutravels.model.Visit.USER_ID;
-import static org.iofstorm.tengu.tengutravels.model.Visit.VISITED_AT;
+import static org.iofstorm.tengu.tengutravels.controller.ControllerHelper.BAD_REQUEST;
+import static org.iofstorm.tengu.tengutravels.controller.ControllerHelper.OK;
 
 @Service
 public class VisitService {
@@ -51,114 +40,97 @@ public class VisitService {
     private LocationService locationService;
 
     public VisitService() {
-        visits = new HashMap<>(500_000);
-        visitsByUser = new HashMap<>(50_000);
-        visitsByLocation = new HashMap<>(50_000);
+        visits = new HashMap<>();
+        visitsByUser = new HashMap<>();
+        visitsByLocation = new HashMap<>();
         lock = new ReentrantReadWriteLock(true);
     }
 
-    public Optional<Visit> getVisit(Integer id) {
+    public boolean visitExist(Integer id) {
         lock.readLock().lock();
         try {
-            Visit v = visits.get(id);
-            if (v == null) log.warn("getting visit by id={}, got null, visits size={}", id, visits.size());
-            return Optional.ofNullable(v);
+            return visits.containsKey(id);
         } finally {
             lock.readLock().unlock();
         }
     }
 
-    public CompletableFuture<Integer> createVisitAsync(Visit visit) {
-        return CompletableFuture.supplyAsync(() -> {
-            if (!validateOnCreate(visit)) return BAD_REQUEST;
-            lock.readLock().lock();
-            try {
-                if (visits.containsKey(visit.getId())) return BAD_REQUEST;
-                lock.readLock().unlock();
-                lock.writeLock().lock();
-                try {
-                    if (visits.containsKey(visit.getId())) {
-                        return BAD_REQUEST;
-                    } else {
-                        Optional<User> user = userService.getUser(visit.getUserId());
-                        Optional<Location> location = locationService.getLocation(visit.getLocationId());
-                        if (user.isPresent() && location.isPresent()) {
-                            enrichVisit(visit, user.get(), location.get());
-                            saveNewVisit(visit);
-                            return OK;
-                        } else {
-                            return BAD_REQUEST;
-                        }
-                    }
-                } finally {
-                    lock.readLock().lock();
-                    lock.writeLock().unlock();
-                }
-            } finally {
-                lock.readLock().unlock();
-            }
-        });
+    public Visit getVisit(Integer id) {
+        lock.readLock().lock();
+        try {
+            return visits.get(id);
+        } finally {
+            lock.readLock().unlock();
+        }
     }
 
-    public CompletableFuture<Integer> updateVisitAsync(Integer visitId, Map<String, Object> visit) {
-        return CompletableFuture.supplyAsync(() -> {
-            lock.readLock().lock();
+    public Integer createVisit(Visit visit) {
+        lock.readLock().lock();
+        try {
+            if (visits.containsKey(visit.getId())) return BAD_REQUEST; // visit already exist
+            lock.readLock().unlock();
+            lock.writeLock().lock();
             try {
-                if (!visits.containsKey(visitId)) {
-                    return NOT_FOUND;
+                if (visits.containsKey(visit.getId())) return BAD_REQUEST; // visit already exist
+
+                User user = userService.getUser(visit.getUserId());
+                Location location = locationService.getLocation(visit.getLocationId());
+                if (user != null && location != null) {
+                    enrichVisit(visit, user, location);
+                    saveVisit(visit);
+                    return OK;
                 } else {
-                    lock.readLock().unlock();
-                    lock.writeLock().lock();
-                    try {
-                        if (!visits.containsKey(visitId)) {
-                            return NOT_FOUND;
-                        } else {
-                            if (validateOnUpdate(visit)) {
-                                Optional<User> user = userService.getUser((Integer) visit.get(USER_ID));
-                                Optional<Location> location = locationService.getLocation((Integer) visit.get(LOCATION_ID));
-                                if (user.isPresent() && location.isPresent()) {
-                                    visits.compute(visitId, (id, oldVisit) -> remapVisit(oldVisit, visit));
-                                    return OK;
-                                } else {
-                                    return BAD_REQUEST;
-                                }
-                            } else {
-                                return BAD_REQUEST;
-                            }
-                        }
-                    } finally {
-                        lock.readLock().lock();
-                        lock.writeLock().unlock();
-                    }
+                    return BAD_REQUEST; // either user or location linked for this visit doesn't exist
                 }
             } finally {
-                lock.readLock().unlock();
+                lock.readLock().lock();
+                lock.writeLock().unlock();
             }
-        });
+        } finally {
+            lock.readLock().unlock();
+        }
     }
 
-    public CompletableFuture<Optional<ShortVisits>> getUserVisitsAsync(Integer userId, Long fromDate, Long toDate, String country, Integer toDistance) {
-        return CompletableFuture.supplyAsync(() -> {
-            List<Visit> userVisits = getVisitsByUser(userId); // r/w lock
-            List<ShortVisit> result = new ArrayList<>();
-            for (Visit v : userVisits) {
-                if (fromDate != null && v.getVisitedAt() < fromDate) continue;
-                if (toDate != null && v.getVisitedAt() > toDate) continue;
-                if (country != null && !country.equals(v.getLocationCountry())) continue;
-                if (toDistance != null && v.getLocationDistance() > toDistance) continue;
-                result.add(ShortVisit.fromVisit(v));
-            }
-            result.sort((o1, o2) -> (int) (o1.getVisitedAt() - o2.getVisitedAt()));
-            ShortVisits shortVisits = new ShortVisits();
-            shortVisits.setVisits(result);
-            return Optional.of(shortVisits);
-        });
+    public void updateVisit(Integer visitId, Visit newVisit) {
+        lock.writeLock().lock();
+        try {
+            Visit oldVisit = visits.get(visitId);
+
+            User newUser = userService.getUser(newVisit.getUserId());
+            Location newLocation = locationService.getLocation(newVisit.getLocationId());
+
+            if (newUser != null) visitsByUser.get(oldVisit.getUserId()).remove(oldVisit);
+            if (newLocation != null) visitsByLocation.get(oldVisit.getLocationId()).remove(oldVisit);
+
+            Visit updatedVisit = remapVisit(oldVisit, newVisit, newUser, newLocation);
+
+            saveVisit(updatedVisit);
+        } finally {
+            lock.writeLock().unlock();
+        }
+    }
+
+    public ShortVisits getUserVisits(Integer userId, Long fromDate, Long toDate, String country, Integer toDistance) {
+        List<Visit> userVisits = getVisitsByUser(userId); // user r lock
+        if (userVisits == null) return null; // user not found
+        List<ShortVisit> result = new ArrayList<>();
+        for (Visit v : userVisits) {
+            if (fromDate != null && v.getVisitedAt() <= fromDate) continue;
+            if (toDate != null && v.getVisitedAt() >= toDate) continue;
+            if (country != null && !country.equals(v.getLocationCountry())) continue;
+            if (toDistance != null && v.getLocationDistance() >= toDistance) continue;
+            result.add(ShortVisit.fromVisit(v));
+        }
+        result.sort((o1, o2) -> (int) (o1.getVisitedAt() - o2.getVisitedAt()));
+        ShortVisits shortVisits = new ShortVisits();
+        shortVisits.setVisits(result);
+        return shortVisits; // return full or empty list here, for ok response
     }
 
     // used for data loading
-    public void load(List<Visit> visitList) {
-        Set<Integer> userIds = new HashSet<>(visitList.size(), 1f);
-        Set<Integer> locationIds = new HashSet<>(visitList.size(), 1f);
+    public Integer load(List<Visit> visitList) {
+        Set<Integer> userIds = new HashSet<>(visitList.size());
+        Set<Integer> locationIds = new HashSet<>(visitList.size());
         visitList.forEach(vst -> {
             userIds.add(vst.getUserId());
             locationIds.add(vst.getLocationId());
@@ -169,45 +141,44 @@ public class VisitService {
 
         lock.writeLock().lock();
         try {
-            visitList.forEach(this::saveNewVisit);
+            visitList.forEach(this::saveVisit);
+        } finally {
+            lock.writeLock().unlock();
+        }
+        return visitList.size();
+    }
+
+    // updates visits on location update
+    public void updateVisitWithLocation(Integer locId, Location loc) {
+        lock.writeLock().lock();
+        try {
+            List<Visit> visitList = visitsByLocation.get(locId);
+            if (CollectionUtils.isNotEmpty(visitList)) {
+                for (Visit vst : visitsByLocation.get(locId)) {
+                    if (loc.getCountry() != null) vst.setLocationCountry(loc.getCountry());
+                    if (loc.getPlace() != null) vst.setLocationPlace(loc.getPlace());
+                    if (loc.getDistance() != null) vst.setLocationDistance(loc.getDistance());
+                }
+            }
         } finally {
             lock.writeLock().unlock();
         }
     }
 
-    // updates visits on location update
-    CompletableFuture<Void> updateVisitWithLocationAsync(Integer locId, Map<String, Object> loc) {
-        return CompletableFuture.runAsync(() -> {
-            // todo check if exist with read lock first
-            lock.writeLock().lock();
-            try {
-                for (Visit vst : visitsByLocation.get(locId)) {
-                    if (loc.containsKey(Location.COUNTRY)) vst.setLocationCountry((String) loc.get(Location.COUNTRY));
-                    if (loc.containsKey(Location.PLACE)) vst.setLocationPlace((String) loc.get(Location.PLACE));
-                    if (loc.containsKey(Location.DISTANCE))
-                        vst.setLocationDistance((Integer) loc.get(Location.DISTANCE));
-                }
-            } finally {
-                lock.writeLock().unlock();
-            }
-        });
-    }
-
     // updates visits on user update
-    CompletableFuture<Void> updateVisitWithUserAsync(Integer userId, Map<String, Object> user) {
-        return CompletableFuture.runAsync(() -> {
-            // todo check if exist with read lock first
-            lock.writeLock().lock();
-            try {
+    public void updateVisitWithUser(Integer userId, User newUser) {
+        lock.writeLock().lock();
+        try {
+            List<Visit> visitList = visitsByUser.get(userId);
+            if (CollectionUtils.isNotEmpty(visitList)) {
                 for (Visit vst : visitsByUser.get(userId)) {
-                    if (user.containsKey(User.GENDER)) vst.setUserGender((String) user.get(User.GENDER));
-                    if (user.containsKey(User.BIRTH_DATE))
-                        vst.setUserId(Utils.calcAge((Long) user.get(User.BIRTH_DATE)));
+                    if (newUser.getGender() != null) vst.setUserGender(newUser.getGender());
+                    if (newUser.getBirthDate() != null) vst.setUserAge(newUser.getAge());
                 }
-            } finally {
-                lock.writeLock().unlock();
             }
-        });
+        } finally {
+            lock.writeLock().unlock();
+        }
     }
 
     List<Visit> getVisitsByLocationId(Integer locId) {
@@ -231,99 +202,56 @@ public class VisitService {
     private List<Visit> getVisitsByUser(Integer userId) {
         lock.readLock().lock();
         try {
-            if (!visits.containsKey(userId)) return Collections.emptyList();
-            lock.readLock().unlock();
-            lock.writeLock().lock();
-            try {
-                if (!visits.containsKey(userId)) return Collections.emptyList();
-                List<Visit> userVisits = visitsByUser.get(userId);
-                return CollectionUtils.isNotEmpty(userVisits) ? new ArrayList<>(userVisits) : Collections.emptyList();
-            } finally {
-                lock.readLock().lock();
-                lock.writeLock().unlock();
-            }
+            if (!userService.userExist(userId)) return null; // user not found
+            List<Visit> visitByUser = visitsByUser.get(userId);
+            return visitByUser == null ? Collections.emptyList() : visitByUser;
         } finally {
             lock.readLock().unlock();
         }
     }
 
-    private void saveNewVisit(Visit visit) {
+    private void saveVisit(Visit visit) {
+        if (visit.getId().equals(2666)) {
+            System.out.println();
+        }
         visits.put(visit.getId(), visit);
         visitsByUser.compute(visit.getUserId(), (userId, list) -> {
             if (list == null) list = new ArrayList<>();
-            else list.add(visit);
+            list.add(visit);
             return list;
         });
         visitsByLocation.compute(visit.getLocationId(), (locId, list) -> {
             if (list == null) list = new ArrayList<>();
-            else list.add(visit);
+            list.add(visit);
             return list;
         });
     }
 
     private void enrichVisit(Visit vst, User usr, Location loc) {
-        vst.setUserAge(Utils.calcAge(usr.getBirthDate()));
+        vst.setUserAge(usr.getAge());
         vst.setUserGender(usr.getGender());
         vst.setLocationCountry(loc.getCountry());
         vst.setLocationDistance(loc.getDistance());
         vst.setLocationPlace(loc.getPlace());
     }
 
-    private Visit remapVisit(Visit oldVisit, Map<String, Object> newVisit) {
-        if (newVisit.containsKey(LOCATION_ID)) oldVisit.setLocationId((Integer) newVisit.get(LOCATION_ID));
-        if (newVisit.containsKey(USER_ID)) oldVisit.setUserId((Integer) newVisit.get(USER_ID));
-        if (newVisit.containsKey(VISITED_AT)) oldVisit.setVisitedAt((Long) newVisit.get(VISITED_AT));
-        if (newVisit.containsKey(MARK)) oldVisit.setMark((Integer) newVisit.get(MARK));
+    private Visit remapVisit(Visit oldVisit, Visit newVisit, User newUser, Location newLocation) {
+        if (newVisit.getLocationId() != null) {
+            // assuming newLocation is not null here
+            oldVisit.setLocationId(newVisit.getLocationId());
+            oldVisit.setLocationDistance(newLocation.getDistance());
+            oldVisit.setLocationPlace(newLocation.getPlace());
+            oldVisit.setLocationCountry(newLocation.getCountry());
+        }
+        if (newVisit.getUserId() != null) {
+            // assuming newUser is not null here
+            oldVisit.setUserId(newVisit.getUserId());
+            oldVisit.setUserGender(newUser.getGender());
+            oldVisit.setUserAge(newUser.getAge());
+        }
+        if (newVisit.getVisitedAt() != null) oldVisit.setVisitedAt(newVisit.getVisitedAt());
+        if (newVisit.getMark() != null) oldVisit.setMark(newVisit.getMark());
+
         return oldVisit;
-    }
-
-    private boolean validateOnUpdate(Map<String, Object> visit) {
-        if (visit.containsKey(ID)) return false;
-        if (visit.containsKey(LOCATION_ID)) {
-            Object o = visit.get(LOCATION_ID);
-            if (o == null || !(o instanceof Integer)) return false;
-        }
-        if (visit.containsKey(USER_ID)) {
-            Object o = visit.get(USER_ID);
-            if (o == null || !(o instanceof Integer)) return false;
-        }
-        if (visit.containsKey(VISITED_AT)) {
-            Object o = visit.get(VISITED_AT);
-            if (o == null || !(o instanceof Long) || ((Long) o < VISITED_AT_MIN || (Long) o > VISITED_AT_MAX))
-                return false;
-        }
-        if (visit.containsKey(MARK)) {
-            Object o = visit.get(MARK);
-            if (o == null || !(o instanceof Integer) || ((Integer) o < 0 || (Integer) o > 5)) return false;
-        }
-        return true;
-    }
-
-    private boolean validateOnCreate(Visit visit) {
-        if (visit == null) {
-//            log.debug("visit validation failed: visit is null");
-            return false;
-        }
-        if (visit.getId() == null) {
-//            log.debug("visit validation failed: id={}, isCreate={}", visit.getId(), true);
-            return false;
-        }
-        if (visit.getLocationId() == null) {
-//            log.debug("visit validation failed: locationId={}, isCreate={}", visit.getLocationId(), true);
-            return false;
-        }
-        if (visit.getUserId() == null) {
-//            log.debug("visit validation failed: userId={}, isCreate={}", visit.getUserId(), true);
-            return false;
-        }
-        if (visit.getVisitedAt() == null || (visit.getVisitedAt() != null && (visit.getVisitedAt() < VISITED_AT_MIN || visit.getVisitedAt() > VISITED_AT_MAX))) {
-//            log.debug("visit validation failed: visitedAt={}, isCreate={}", visit.getVisitedAt(), true);
-            return false;
-        }
-        if (visit.getMark() == null || (visit.getMark() != null && (visit.getMark() < 0 || visit.getMark() > 5))) {
-//            log.debug("visit validation failed: visitedAt={}, isCreate={}", visit.getVisitedAt(), true);
-            return false;
-        }
-        return true;
     }
 }

@@ -1,8 +1,13 @@
 package org.iofstorm.tengu.tengutravels.model;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonInclude;
 import org.apache.commons.lang3.builder.ToStringBuilder;
+import org.springframework.http.ResponseEntity;
+
+import java.time.LocalDate;
+import java.time.ZoneId;
 
 @JsonInclude(JsonInclude.Include.NON_NULL)
 @JsonIgnoreProperties(ignoreUnknown = true)
@@ -12,6 +17,11 @@ public class Location {
     public static final String COUNTRY = "country";
     public static final String CITY = "city";
     public static final String DISTANCE = "distance";
+
+    public static final Integer COUNTRY_LENGTH = 50;
+    public static final Integer CITY_LENGTH = 50;
+    public static final Long VISITED_AT_MIN = LocalDate.of(2000, 1, 1).atStartOfDay().atZone(ZoneId.systemDefault()).toEpochSecond();
+    public static final Long VISITED_AT_MAX = LocalDate.of(2015, 1, 1).atStartOfDay().atZone(ZoneId.systemDefault()).toEpochSecond();
 
     // 32 bit int unique
     private Integer id;
@@ -27,6 +37,9 @@ public class Location {
 
     // 32 bit int
     private Integer distance;
+
+    @JsonIgnore
+    private ResponseEntity<String> cachedResponse;
 
     public Integer getId() {
         return id;
@@ -66,6 +79,14 @@ public class Location {
 
     public void setDistance(Integer distance) {
         this.distance = distance;
+    }
+
+    public ResponseEntity<String> getCachedResponse() {
+        return cachedResponse;
+    }
+
+    public void setCachedResponse(ResponseEntity<String> cachedResponse) {
+        this.cachedResponse = cachedResponse;
     }
 
     @Override

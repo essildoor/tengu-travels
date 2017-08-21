@@ -6,15 +6,14 @@ import java.math.BigDecimal;
 
 public class Mark {
 
-    @JsonProperty
-    private Double mark;
+    @JsonProperty("avg")
+    private BigDecimal avg;
 
-    public Double getMark() {
-        return mark;
+    public BigDecimal getAvg() {
+        return avg;
     }
 
-    public void setMark(Double mark) {
-        BigDecimal bd = BigDecimal.valueOf(mark).setScale(5, BigDecimal.ROUND_HALF_UP);
-        this.mark = bd.doubleValue();
+    public void setAvg(BigDecimal avg) {
+        this.avg = avg;
     }
 }

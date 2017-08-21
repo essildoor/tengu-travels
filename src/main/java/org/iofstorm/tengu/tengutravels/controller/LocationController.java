@@ -2,11 +2,13 @@ package org.iofstorm.tengu.tengutravels.controller;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import org.iofstorm.tengu.tengutravels.Utils;
 import org.iofstorm.tengu.tengutravels.model.Location;
+import org.iofstorm.tengu.tengutravels.model.Mark;
 import org.iofstorm.tengu.tengutravels.service.LocationService;
+import org.iofstorm.tengu.tengutravels.service.VisitService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.beans.TypeMismatchException;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
@@ -24,80 +26,88 @@ import java.util.Objects;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Future;
 
-import static org.iofstorm.tengu.tengutravels.Constants.MAX_AGE;
-import static org.iofstorm.tengu.tengutravels.Constants.MIN_AGE;
-import static org.iofstorm.tengu.tengutravels.Constants.NOT_FOUND;
-import static org.iofstorm.tengu.tengutravels.Constants.OK;
-import static org.iofstorm.tengu.tengutravels.Constants.VISITED_AT_MAX;
-import static org.iofstorm.tengu.tengutravels.Constants.VISITED_AT_MIN;
+import static org.iofstorm.tengu.tengutravels.controller.ControllerHelper.BAD_REQUEST;
+import static org.iofstorm.tengu.tengutravels.controller.ControllerHelper.NOT_FOUND;
+import static org.iofstorm.tengu.tengutravels.controller.ControllerHelper.OK;
+import static org.iofstorm.tengu.tengutravels.model.Location.CITY;
+import static org.iofstorm.tengu.tengutravels.model.Location.CITY_LENGTH;
+import static org.iofstorm.tengu.tengutravels.model.Location.COUNTRY;
+import static org.iofstorm.tengu.tengutravels.model.Location.COUNTRY_LENGTH;
+import static org.iofstorm.tengu.tengutravels.model.Location.DISTANCE;
+import static org.iofstorm.tengu.tengutravels.model.Location.ID;
+import static org.iofstorm.tengu.tengutravels.model.Location.PLACE;
 
 @Controller
 @RequestMapping("/locations")
 public class LocationController {
     private static final Logger log = LoggerFactory.getLogger(LocationController.class);
 
-    private final LocationService locationService;
-    private final ControllerHelper controllerHelper;
-
     @Autowired
     private ObjectMapper objectMapper;
 
     @Autowired
-    public LocationController(LocationService locationService, ControllerHelper controllerHelper) {
-        this.locationService = Objects.requireNonNull(locationService);
-        this.controllerHelper = Objects.requireNonNull(controllerHelper);
-    }
+    private VisitService visitService;
+
+    @Autowired
+    private LocationService locationService;
+
+    @Autowired
+    private Utils utils;
+
+    @Autowired
+    private ControllerHelper controllerHelper;
 
     @RequestMapping(method = RequestMethod.GET, path = "/{locationId}", produces = MediaType.APPLICATION_JSON_VALUE)
-    public Future<ResponseEntity<String>> getLocationAsync(@PathVariable("locationId") Integer locationId) throws JsonProcessingException {
-        Future<ResponseEntity<String>> res;
-        if (locationId == null) {
-            res = controllerHelper.futureBadRequest();
-        } else {
-            res = CompletableFuture.supplyAsync(() -> locationService.getLocation(locationId))
-                    .thenApply(locationOptional -> {
-                        ResponseEntity<String> response;
-                        if (locationOptional.isPresent()) {
-                            String location;
-                            try {
-                                location = objectMapper.writeValueAsString(locationOptional.get());
-                                response = ResponseEntity.ok()
-                                        .contentType(MediaType.APPLICATION_JSON)
-                                        .contentLength(location.getBytes().length)
-                                        .body(location);
-                            } catch (JsonProcessingException e) {
-                                log.error("json serialization error {}", e.getMessage());
-                                response = controllerHelper.badRequest();
-                            }
-                        } else {
-                            response = controllerHelper.notFound();
-                        }
-                        return response;
-                    });
-        }
-        return res;
+    public Future<ResponseEntity<String>> getLocationAsync(@PathVariable("locationId") Integer locationId) {
+        return CompletableFuture.supplyAsync(() -> {
+            if (locationId == null) return controllerHelper.badRequest();
+
+            Location location = locationService.getLocation(locationId);
+
+            if (location == null) return controllerHelper.notFound();
+
+            ResponseEntity<String> res;
+
+            if (location.getCachedResponse() != null) return location.getCachedResponse();
+
+            try {
+                String locationStr = objectMapper.writeValueAsString(location);
+                res = ResponseEntity.ok()
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .contentLength(locationStr.getBytes().length)
+                        .body(locationStr);
+            } catch (JsonProcessingException e) {
+                log.error("json serialization error {}", e.getMessage());
+                res = controllerHelper.badRequest();
+            }
+            return res;
+        });
     }
 
     @RequestMapping(method = RequestMethod.POST, path = "/new", consumes = MediaType.APPLICATION_JSON_VALUE, produces = MediaType.APPLICATION_JSON_VALUE)
     public Future<ResponseEntity<String>> createLocationAsync(@RequestBody Location location) {
-        return locationService.createLocationAsync(location).thenApply(code -> Objects.equals(code, OK) ? controllerHelper.okEmpty() : controllerHelper.badRequest());
+        return CompletableFuture.supplyAsync(() -> {
+            if (!validateOnCreate(location)) return controllerHelper.badRequest();
+            Integer code = locationService.createLocation(location);
+            return Objects.equals(code, OK) ? controllerHelper.okEmpty() : controllerHelper.badRequest();
+        });
     }
 
     @RequestMapping(method = RequestMethod.POST, path = "/{locationId}", consumes = MediaType.APPLICATION_JSON_VALUE, produces = MediaType.APPLICATION_JSON_VALUE)
-    public Future<ResponseEntity<String>> updateLocationAsync(@PathVariable("locationId") Integer locationId, @RequestBody Map<String, Object> location) {
-        Future<ResponseEntity<String>> res;
-        if (locationId == null) {
-            res = controllerHelper.futureBadRequest();
-        } else {
-            res = locationService.updateLocationAsync(locationId, location).thenApply(code -> {
-                ResponseEntity<String> response;
-                if (Objects.equals(code, OK)) response = controllerHelper.okEmpty();
-                else if (Objects.equals(code, NOT_FOUND)) response = controllerHelper.notFound();
-                else response = controllerHelper.badRequest();
-                return response;
-            });
-        }
-        return res;
+    public Future<ResponseEntity<String>> updateLocationAsync(@PathVariable("locationId") Integer locationId, @RequestBody Map<String, String> location) {
+        return CompletableFuture.supplyAsync(() -> {
+            if (locationId == null) return controllerHelper.badRequest();
+
+            Location newLocation = validateOnUpdate(location);
+            Integer code = locationService.updateLocation(locationId, newLocation);
+
+            if (Objects.equals(code, NOT_FOUND)) return controllerHelper.notFound();
+            if (Objects.equals(code, BAD_REQUEST)) return controllerHelper.badRequest();
+
+            visitService.updateVisitWithLocation(locationId, newLocation);
+
+            return controllerHelper.okEmpty();
+        });
     }
 
     @RequestMapping(method = RequestMethod.GET, path = "/{locationId}/avg", produces = MediaType.APPLICATION_JSON_VALUE)
@@ -107,30 +117,27 @@ public class LocationController {
                                                               @RequestParam(value = "fromAge", required = false) Integer fromAge,
                                                               @RequestParam(value = "toAge", required = false) Integer toAge,
                                                               @RequestParam(value = "gender", required = false) String gender) {
-        Future<ResponseEntity<String>> res;
-        if (!validateGetAverageMarkParams(locationId, fromDate, toDate, fromAge, toAge, gender)) {
-            res = controllerHelper.futureBadRequest();
-        } else {
-            res = locationService.getAverageMarkAsync(locationId, fromDate, toDate, fromAge, toAge, gender)
-                    .thenApply(markOptional -> {
-                        ResponseEntity<String> response;
-                        if (markOptional.isPresent()) {
-                            try {
-                                String mark = objectMapper.writeValueAsString(markOptional.get());
-                                response = ResponseEntity.ok()
-                                        .contentType(MediaType.APPLICATION_JSON)
-                                        .contentLength(mark.getBytes().length)
-                                        .body(mark);
-                            } catch (JsonProcessingException e) {
-                                response = controllerHelper.badRequest();
-                            }
-                        } else {
-                            response = controllerHelper.notFound();
-                        }
-                        return response;
-                    });
-        }
-        return res;
+        return CompletableFuture.supplyAsync(() -> {
+            if (locationId == null) return controllerHelper.badRequest();
+
+            if (gender != null && utils.notMorF(gender)) return controllerHelper.badRequest();
+
+            Mark mark = locationService.getAverageMark(locationId, fromDate, toDate, fromAge, toAge, gender);
+
+            if (mark == null) return controllerHelper.notFound();
+
+            ResponseEntity<String> res;
+            try {
+                String body = objectMapper.writeValueAsString(mark);
+                res = ResponseEntity.ok()
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .contentLength(body.getBytes().length)
+                        .body(body);
+            } catch (JsonProcessingException e) {
+                res = controllerHelper.badRequest();
+            }
+            return res;
+        });
     }
 
     @RequestMapping(path = "/ping", method = RequestMethod.GET)
@@ -138,30 +145,50 @@ public class LocationController {
         return ResponseEntity.ok("ok");
     }
 
-    @ExceptionHandler(TypeMismatchException.class)
+    //@ExceptionHandler({TypeMismatchException.class, HttpMediaTypeNotSupportedException.class, HttpMessageNotReadableException.class})
+    @ExceptionHandler(Exception.class)
     public ResponseEntity<String> handleMyException(Exception exception, HttpServletRequest request) {
-        return controllerHelper.notFound();
+        return controllerHelper.badRequest();
     }
 
-    private boolean validateGetAverageMarkParams(Integer locId, Long fromDate, Long toDate, Integer fromAge, Integer toAge, String gender) {
-        if (locId == null) {
+    private boolean validateOnCreate(Location location) {
+        if (location == null) return false;
+        if (location.getId() == null) return false;
+        if (location.getPlace() == null) return false;
+        if (location.getCountry() == null || (location.getCountry() != null && location.getCountry().length() > COUNTRY_LENGTH))
             return false;
-        }
-        if (fromDate != null && (fromDate < VISITED_AT_MIN || fromDate > VISITED_AT_MAX)) {
+        if (location.getCity() == null || (location.getCity() != null && location.getCity().length() > CITY_LENGTH))
             return false;
-        }
-        if (toDate != null && (toDate < VISITED_AT_MIN || toDate > VISITED_AT_MAX)) {
-            return false;
-        }
-        if (fromAge != null && (fromAge < MIN_AGE || fromAge > MAX_AGE)) {
-            return false;
-        }
-        if (toAge != null && (toAge < MIN_AGE || toAge > MAX_AGE)) {
-            return false;
-        }
-        if (gender != null && (!"m".equals(gender) && !"f".equals(gender))) {
-            return false;
-        }
+        if (location.getDistance() == null) return false;
         return true;
+    }
+
+    private Location validateOnUpdate(Map<String, String> loc) {
+        Location location = new Location();
+        if (loc.containsKey(ID)) return null;
+        if (loc.containsKey(PLACE)) {
+            if (loc.get(PLACE) == null) return null;
+            else location.setPlace(loc.get(PLACE));
+        }
+        if (loc.containsKey(COUNTRY)) {
+            String o = loc.get(COUNTRY);
+            if (o == null || o.length() > COUNTRY_LENGTH) return null;
+            else location.setCountry(o);
+        }
+        if (loc.containsKey(CITY)) {
+            String o = loc.get(CITY);
+            if (o == null || o.length() > CITY_LENGTH) return null;
+            else location.setCity(o);
+        }
+        if (loc.containsKey(DISTANCE)) {
+            String o = loc.get(DISTANCE);
+            if (o == null) return null;
+            try {
+                location.setDistance(Integer.valueOf(o));
+            } catch (NumberFormatException e) {
+                return null;
+            }
+        }
+        return location;
     }
 }

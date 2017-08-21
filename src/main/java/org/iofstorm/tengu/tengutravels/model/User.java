@@ -5,6 +5,10 @@ import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import org.apache.commons.lang3.builder.ToStringBuilder;
+import org.springframework.http.ResponseEntity;
+
+import java.time.LocalDate;
+import java.time.ZoneId;
 
 @JsonInclude(JsonInclude.Include.NON_NULL)
 @JsonIgnoreProperties(ignoreUnknown = true)
@@ -15,6 +19,11 @@ public class User {
     public static final String GENDER = "gender";
     public static final String BIRTH_DATE = "birth_date";
     public static final String EMAIL = "email";
+
+    public static final Integer EMAIL_LENGTH = 100;
+    public static final Integer NAME_LENGTH = 50;
+    public static final Long BIRTH_DATE_MIN = LocalDate.of(1930, 1, 1).atStartOfDay().atZone(ZoneId.systemDefault()).toEpochSecond();
+    public static final Long BIRTH_DATE_MAX = LocalDate.of(1999, 1, 1).atStartOfDay().atZone(ZoneId.systemDefault()).toEpochSecond();
 
     // 32 bit int unique
     private Integer id;
@@ -39,6 +48,9 @@ public class User {
 
     @JsonIgnore
     private int age;
+
+    @JsonIgnore
+    private ResponseEntity<String> cachedResponse;
 
     public Integer getId() {
         return id;
@@ -88,12 +100,20 @@ public class User {
         this.birthDate = birthDate;
     }
 
-    public int getAge() {
+    public Integer getAge() {
         return age;
     }
 
     public void setAge(int age) {
         this.age = age;
+    }
+
+    public ResponseEntity<String> getCachedResponse() {
+        return cachedResponse;
+    }
+
+    public void setCachedResponse(ResponseEntity<String> cachedResponse) {
+        this.cachedResponse = cachedResponse;
     }
 
     @Override
