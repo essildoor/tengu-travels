@@ -5,7 +5,6 @@ import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import org.apache.commons.lang3.builder.ToStringBuilder;
-import org.springframework.http.ResponseEntity;
 
 import java.time.LocalDate;
 import java.time.ZoneId;
@@ -48,9 +47,6 @@ public class User {
 
     @JsonIgnore
     private int age;
-
-    @JsonIgnore
-    private ResponseEntity<String> cachedResponse;
 
     public Integer getId() {
         return id;
@@ -106,14 +102,6 @@ public class User {
 
     public void setAge(int age) {
         this.age = age;
-    }
-
-    public ResponseEntity<String> getCachedResponse() {
-        return cachedResponse;
-    }
-
-    public void setCachedResponse(ResponseEntity<String> cachedResponse) {
-        this.cachedResponse = cachedResponse;
     }
 
     @Override

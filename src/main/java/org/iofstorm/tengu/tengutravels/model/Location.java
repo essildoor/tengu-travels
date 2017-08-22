@@ -1,10 +1,8 @@
 package org.iofstorm.tengu.tengutravels.model;
 
-import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonInclude;
 import org.apache.commons.lang3.builder.ToStringBuilder;
-import org.springframework.http.ResponseEntity;
 
 import java.time.LocalDate;
 import java.time.ZoneId;
@@ -37,9 +35,6 @@ public class Location {
 
     // 32 bit int
     private Integer distance;
-
-    @JsonIgnore
-    private ResponseEntity<String> cachedResponse;
 
     public Integer getId() {
         return id;
@@ -79,14 +74,6 @@ public class Location {
 
     public void setDistance(Integer distance) {
         this.distance = distance;
-    }
-
-    public ResponseEntity<String> getCachedResponse() {
-        return cachedResponse;
-    }
-
-    public void setCachedResponse(ResponseEntity<String> cachedResponse) {
-        this.cachedResponse = cachedResponse;
     }
 
     @Override

@@ -29,6 +29,8 @@ repositories {
 
 dependencies {
 	compile('org.springframework.boot:spring-boot-starter-web')
+	compile('org.springframework.boot:spring-boot-starter-undertow')
+	compile('org.apache.httpcomponents:httpclient:4.5.3')
 	compile('org.springframework.boot:spring-boot-starter-log4j2')
 	compile('org.apache.commons:commons-lang3:3.6')
 	compile('org.apache.commons:commons-collections4:4.1')
@@ -39,5 +41,6 @@ dependencies {
 }
 
 configurations.all {
-	exclude group: 'org.springframework.boot', module: 'spring-boot-starter-logging'
+	exclude module: 'spring-boot-starter-logging'
+	exclude module: "spring-boot-starter-tomcat"
 }

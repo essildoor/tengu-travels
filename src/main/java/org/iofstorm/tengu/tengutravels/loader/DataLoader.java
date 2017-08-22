@@ -3,6 +3,7 @@ package org.iofstorm.tengu.tengutravels.loader;
 import com.fasterxml.jackson.core.JsonParser;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.apache.commons.io.IOUtils;
+import org.iofstorm.tengu.tengutravels.Preheater;
 import org.iofstorm.tengu.tengutravels.model.Locations;
 import org.iofstorm.tengu.tengutravels.model.Users;
 import org.iofstorm.tengu.tengutravels.model.Visits;
@@ -61,6 +62,9 @@ public class DataLoader {
 
     private ExecutorService executor;
 
+    @Autowired
+    private Preheater preheater;
+
 
     @Autowired
     public DataLoader(@Value("${tengu.data.path}") String zipFilePath) throws IOException, InterruptedException {
@@ -76,8 +80,7 @@ public class DataLoader {
             try (ZipInputStream zipIn = new ZipInputStream(new FileInputStream(zipFilePath))) {
                 ZipEntry entry = zipIn.getNextEntry();
                 while (entry != null) {
-                    if (entry.getName().contains("txt")) log.info("found: {}", entry.getName());
-                    if (entry.getName().contains("options")) {
+                    if (entry.getName().contains("options") || entry.getName().equals("options.txt")) {
                         Long ts = Long.valueOf(IOUtils.readLines(zipIn, Charset.defaultCharset()).get(0));
 
                         log.info("read timestamp: {}", ts);
@@ -94,7 +97,10 @@ public class DataLoader {
             }
         }
 
-        if (NOW_TS == null) NOW_TS = LocalDateTime.ofInstant(Instant.ofEpochSecond(1502881955L), ZoneId.systemDefault());
+        if (NOW_TS == null) {
+            log.warn("options.txt was not found!");
+            NOW_TS = LocalDateTime.ofInstant(Instant.ofEpochSecond(1503333691L), ZoneId.systemDefault());
+        }
     }
 
     @PostConstruct
@@ -143,6 +149,14 @@ public class DataLoader {
                     log.info("{} locations were loaded", locationCount.get());
                     log.info("{} visits were loaded", visitCount.get());
                     log.info("data was loaded in {} sec", String.format("%.3f", (System.currentTimeMillis() - startTs) / 1000f));
-                });
+                }).thenRun(() -> {
+            try {
+                preheater.startPreheat();
+            } catch (InterruptedException e) {
+                e.printStackTrace();
+            } catch (IOException e) {
+                e.printStackTrace();
+            }
+        });
     }
 }

@@ -1,10 +1,10 @@
 package org.iofstorm.tengu.tengutravels.service;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
 import org.iofstorm.tengu.tengutravels.Utils;
 import org.iofstorm.tengu.tengutravels.model.User;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 import java.util.HashMap;
@@ -24,14 +24,19 @@ public class UserService {
 
     private final Map<Integer, User> users;
     private final ReadWriteLock lock;
-    private final ObjectMapper objectMapper;
     private final Utils utils;
 
-    public UserService(ObjectMapper objectMapper, Utils utils) {
+    @Autowired
+    private VisitService visitService;
+
+    public UserService(Utils utils) {
         users = new HashMap<>();
         lock = new ReentrantReadWriteLock(true);
-        this.objectMapper = objectMapper;
         this.utils = utils;
+    }
+
+    public ReadWriteLock getLock() {
+        return lock;
     }
 
     public User getUser(Integer id) {
@@ -42,6 +47,11 @@ public class UserService {
         } finally {
             lock.readLock().unlock();
         }
+    }
+
+    public User getUserWithouLock(Integer id) {
+        if (id == null) return null;
+        return users.get(id);
     }
 
     public boolean userExist(Integer id) {
@@ -63,7 +73,6 @@ public class UserService {
                 if (users.containsKey(user.getId())) {
                     return BAD_REQUEST;
                 } else {
-                    utils.setCachedResponse(user, objectMapper);
                     users.put(user.getId(), user);
                     return OK;
                 }
@@ -83,14 +92,17 @@ public class UserService {
 
             lock.readLock().unlock();
             lock.writeLock().lock();
+            visitService.getLock().writeLock().lock();
             try {
                 if (!users.containsKey(userId)) return NOT_FOUND;
                 if (userUpdate == null) return BAD_REQUEST;
 
                 users.compute(userId, (id, oldUser) -> remapUser(oldUser, userUpdate));
+                visitService.updateVisitWithUserWithoutLock(userId, userUpdate);
                 return OK;
             } finally {
                 lock.readLock().lock();
+                visitService.getLock().writeLock().unlock();
                 lock.writeLock().unlock();
             }
         } finally {
@@ -104,7 +116,6 @@ public class UserService {
         try {
             userList.forEach(usr -> {
                 usr.setAge(utils.calcAge(usr.getBirthDate()));
-                utils.setCachedResponse(usr, objectMapper);
                 users.put(usr.getId(), usr);
             });
         } finally {
@@ -129,8 +140,6 @@ public class UserService {
             oldUser.setAge(newUser.getAge());
         }
         if (newUser.getGender() != null) oldUser.setGender(newUser.getGender());
-
-        utils.setCachedResponse(oldUser, objectMapper);
 
         return oldUser;
     }

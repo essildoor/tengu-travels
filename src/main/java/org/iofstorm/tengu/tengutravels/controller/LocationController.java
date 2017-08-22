@@ -26,7 +26,6 @@ import java.util.Objects;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Future;
 
-import static org.iofstorm.tengu.tengutravels.controller.ControllerHelper.BAD_REQUEST;
 import static org.iofstorm.tengu.tengutravels.controller.ControllerHelper.NOT_FOUND;
 import static org.iofstorm.tengu.tengutravels.controller.ControllerHelper.OK;
 import static org.iofstorm.tengu.tengutravels.model.Location.CITY;
@@ -68,8 +67,6 @@ public class LocationController {
 
             ResponseEntity<String> res;
 
-            if (location.getCachedResponse() != null) return location.getCachedResponse();
-
             try {
                 String locationStr = objectMapper.writeValueAsString(location);
                 res = ResponseEntity.ok()
@@ -101,12 +98,9 @@ public class LocationController {
             Location newLocation = validateOnUpdate(location);
             Integer code = locationService.updateLocation(locationId, newLocation);
 
-            if (Objects.equals(code, NOT_FOUND)) return controllerHelper.notFound();
-            if (Objects.equals(code, BAD_REQUEST)) return controllerHelper.badRequest();
-
-            visitService.updateVisitWithLocation(locationId, newLocation);
-
-            return controllerHelper.okEmpty();
+            if (code == OK) return controllerHelper.okEmpty();
+            if (code == NOT_FOUND) return controllerHelper.notFound();
+            else return controllerHelper.badRequest();
         });
     }
 

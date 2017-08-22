@@ -1,6 +1,5 @@
 package org.iofstorm.tengu.tengutravels.service;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
 import org.iofstorm.tengu.tengutravels.Utils;
 import org.iofstorm.tengu.tengutravels.model.Location;
 import org.iofstorm.tengu.tengutravels.model.Mark;
@@ -28,16 +27,18 @@ public class LocationService {
 
     private final Map<Integer, Location> locations;
     private final ReadWriteLock lock;
-    private final ObjectMapper objectMapper;
     private final VisitService visitService;
     private final Utils utils;
 
-    public LocationService(ObjectMapper objectMapper, VisitService visitService, Utils utils) {
+    public LocationService(VisitService visitService, Utils utils) {
         locations = new HashMap<>();
         lock = new ReentrantReadWriteLock(true);
-        this.objectMapper = Objects.requireNonNull(objectMapper);
         this.visitService = Objects.requireNonNull(visitService);
         this.utils = Objects.requireNonNull(utils);
+    }
+
+    public ReadWriteLock getLock() {
+        return lock;
     }
 
     public Location getLocation(Integer id) {
@@ -50,6 +51,11 @@ public class LocationService {
         }
     }
 
+    Location getLocationWithoutLock(Integer id) {
+        if (id == null) return null;
+        return locations.get(id);
+    }
+
     public Integer createLocation(Location location) {
         lock.readLock().lock();
         try {
@@ -60,7 +66,6 @@ public class LocationService {
                 if (locations.containsKey(location.getId())) {
                     return BAD_REQUEST;
                 } else {
-                    utils.setCachedResponse(location, objectMapper);
                     locations.put(location.getId(), location);
                     return OK;
                 }
@@ -82,13 +87,18 @@ public class LocationService {
                 return BAD_REQUEST;
             } else {
                 lock.readLock().unlock();
+
                 lock.writeLock().lock();
+                visitService.getLock().writeLock().lock();
                 try {
                     locations.compute(locationId, (id, oldLoc) -> remapLocation(oldLoc, newLocation));
+                    visitService.updateVisitWithLocationWithoutLock(locationId, newLocation);
                     return OK;
                 } finally {
                     lock.readLock().lock();
+                    visitService.getLock().writeLock().unlock();
                     lock.writeLock().unlock();
+
                 }
             }
         } finally {
@@ -121,7 +131,6 @@ public class LocationService {
         lock.writeLock().lock();
         try {
             locationList.forEach(loc -> {
-                utils.setCachedResponse(loc, objectMapper);
                 locations.put(loc.getId(), loc);
             });
         } finally {
@@ -151,8 +160,6 @@ public class LocationService {
         if (newLoc.getCity() != null) oldLoc.setCity(newLoc.getCity());
         if (newLoc.getCountry() != null) oldLoc.setCountry(newLoc.getCountry());
         if (newLoc.getDistance() != null) oldLoc.setDistance(newLoc.getDistance());
-
-        utils.setCachedResponse(oldLoc, objectMapper);
 
         return oldLoc;
     }

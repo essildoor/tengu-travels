@@ -72,8 +72,6 @@ public class UserController {
 
             if (user == null) return controllerHelper.notFound();
 
-            if (user.getCachedResponse() != null) return user.getCachedResponse();
-
             ResponseEntity<String> res;
             try {
                 String userStr = objectMapper.writeValueAsString(user);
@@ -135,16 +133,9 @@ public class UserController {
 
             Integer code = userService.updateUser(userId, newUser);
 
-            ResponseEntity<String> res;
-            if (Objects.equals(code, OK)) {
-                visitService.updateVisitWithUser(userId, newUser);
-                res = controllerHelper.okEmpty();
-            } else if (Objects.equals(code, NOT_FOUND)) {
-                res = controllerHelper.notFound();
-            } else {
-                res = controllerHelper.badRequest();
-            }
-            return res;
+            if (code == OK) return controllerHelper.okEmpty();
+            else if (code == NOT_FOUND) return controllerHelper.notFound();
+            else return controllerHelper.badRequest();
         });
     }
 

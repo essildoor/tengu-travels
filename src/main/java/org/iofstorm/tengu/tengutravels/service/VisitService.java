@@ -29,8 +29,8 @@ public class VisitService {
     private static final Logger log = LoggerFactory.getLogger(VisitService.class);
 
     private final Map<Integer, Visit> visits;
-    private final Map<Integer, List<Visit>> visitsByUser;
-    private final Map<Integer, List<Visit>> visitsByLocation;
+    private final Map<Integer, Set<Visit>> visitsByUser;
+    private final Map<Integer, Set<Visit>> visitsByLocation;
     private final ReadWriteLock lock;
 
     @Autowired
@@ -38,6 +38,10 @@ public class VisitService {
 
     @Autowired
     private LocationService locationService;
+
+    public ReadWriteLock getLock() {
+        return lock;
+    }
 
     public VisitService() {
         visits = new HashMap<>();
@@ -69,12 +73,15 @@ public class VisitService {
         try {
             if (visits.containsKey(visit.getId())) return BAD_REQUEST; // visit already exist
             lock.readLock().unlock();
+
+            userService.getLock().writeLock().lock();
+            locationService.getLock().writeLock().lock();
             lock.writeLock().lock();
             try {
                 if (visits.containsKey(visit.getId())) return BAD_REQUEST; // visit already exist
 
-                User user = userService.getUser(visit.getUserId());
-                Location location = locationService.getLocation(visit.getLocationId());
+                User user = userService.getUserWithouLock(visit.getUserId());
+                Location location = locationService.getLocationWithoutLock(visit.getLocationId());
                 if (user != null && location != null) {
                     enrichVisit(visit, user, location);
                     saveVisit(visit);
@@ -84,7 +91,10 @@ public class VisitService {
                 }
             } finally {
                 lock.readLock().lock();
+
                 lock.writeLock().unlock();
+                locationService.getLock().writeLock().unlock();
+                userService.getLock().writeLock().unlock();
             }
         } finally {
             lock.readLock().unlock();
@@ -92,6 +102,8 @@ public class VisitService {
     }
 
     public void updateVisit(Integer visitId, Visit newVisit) {
+        userService.getLock().writeLock().lock();
+        locationService.getLock().writeLock().lock();
         lock.writeLock().lock();
         try {
             Visit oldVisit = visits.get(visitId);
@@ -107,11 +119,13 @@ public class VisitService {
             saveVisit(updatedVisit);
         } finally {
             lock.writeLock().unlock();
+            locationService.getLock().writeLock().unlock();
+            userService.getLock().writeLock().unlock();
         }
     }
 
     public ShortVisits getUserVisits(Integer userId, Long fromDate, Long toDate, String country, Integer toDistance) {
-        List<Visit> userVisits = getVisitsByUser(userId); // user r lock
+        Set<Visit> userVisits = getVisitsByUser(userId); // user r lock
         if (userVisits == null) return null; // user not found
         List<ShortVisit> result = new ArrayList<>();
         for (Visit v : userVisits) {
@@ -149,35 +163,30 @@ public class VisitService {
     }
 
     // updates visits on location update
-    public void updateVisitWithLocation(Integer locId, Location loc) {
-        lock.writeLock().lock();
-        try {
-            List<Visit> visitList = visitsByLocation.get(locId);
-            if (CollectionUtils.isNotEmpty(visitList)) {
-                for (Visit vst : visitsByLocation.get(locId)) {
-                    if (loc.getCountry() != null) vst.setLocationCountry(loc.getCountry());
-                    if (loc.getPlace() != null) vst.setLocationPlace(loc.getPlace());
-                    if (loc.getDistance() != null) vst.setLocationDistance(loc.getDistance());
-                }
+    public void updateVisitWithLocationWithoutLock(Integer locId, Location loc) {
+        Set<Visit> visitList = visitsByLocation.get(locId);
+        if (CollectionUtils.isNotEmpty(visitList)) {
+            boolean updateCountry = loc.getCountry() != null;
+            boolean updatePlace = loc.getPlace() != null;
+            boolean updateDistance = loc.getDistance() != null;
+            for (Visit vst : visitList) {
+                if (updateCountry) vst.setLocationCountry(loc.getCountry());
+                if (updatePlace) vst.setLocationPlace(loc.getPlace());
+                if (updateDistance) vst.setLocationDistance(loc.getDistance());
             }
-        } finally {
-            lock.writeLock().unlock();
         }
     }
 
     // updates visits on user update
-    public void updateVisitWithUser(Integer userId, User newUser) {
-        lock.writeLock().lock();
-        try {
-            List<Visit> visitList = visitsByUser.get(userId);
-            if (CollectionUtils.isNotEmpty(visitList)) {
-                for (Visit vst : visitsByUser.get(userId)) {
-                    if (newUser.getGender() != null) vst.setUserGender(newUser.getGender());
-                    if (newUser.getBirthDate() != null) vst.setUserAge(newUser.getAge());
-                }
+    public void updateVisitWithUserWithoutLock(Integer userId, User newUser) {
+        Set<Visit> visitList = visitsByUser.get(userId);
+        if (CollectionUtils.isNotEmpty(visitList)) {
+            boolean updateGender = newUser.getGender() != null;
+            boolean updateAge = newUser.getBirthDate() != null;
+            for (Visit vst : visitList) {
+                if (updateGender) vst.setUserGender(newUser.getGender());
+                if (updateAge) vst.setUserAge(newUser.getAge());
             }
-        } finally {
-            lock.writeLock().unlock();
         }
     }
 
@@ -188,7 +197,7 @@ public class VisitService {
             lock.readLock().unlock();
             lock.writeLock().lock();
             try {
-                List<Visit> locationVisits = visitsByLocation.get(locId);
+                Set<Visit> locationVisits = visitsByLocation.get(locId);
                 return CollectionUtils.isNotEmpty(locationVisits) ? new ArrayList<>(locationVisits) : Collections.emptyList();
             } finally {
                 lock.readLock().lock();
@@ -199,29 +208,26 @@ public class VisitService {
         }
     }
 
-    private List<Visit> getVisitsByUser(Integer userId) {
+    private Set<Visit> getVisitsByUser(Integer userId) {
         lock.readLock().lock();
         try {
             if (!userService.userExist(userId)) return null; // user not found
-            List<Visit> visitByUser = visitsByUser.get(userId);
-            return visitByUser == null ? Collections.emptyList() : visitByUser;
+            Set<Visit> visitByUser = visitsByUser.get(userId);
+            return visitByUser == null ? Collections.emptySet() : visitByUser;
         } finally {
             lock.readLock().unlock();
         }
     }
 
     private void saveVisit(Visit visit) {
-        if (visit.getId().equals(2666)) {
-            System.out.println();
-        }
         visits.put(visit.getId(), visit);
         visitsByUser.compute(visit.getUserId(), (userId, list) -> {
-            if (list == null) list = new ArrayList<>();
+            if (list == null) list = new HashSet<>(1000);
             list.add(visit);
             return list;
         });
         visitsByLocation.compute(visit.getLocationId(), (locId, list) -> {
-            if (list == null) list = new ArrayList<>();
+            if (list == null) list = new HashSet<>(1000);
             list.add(visit);
             return list;
         });
