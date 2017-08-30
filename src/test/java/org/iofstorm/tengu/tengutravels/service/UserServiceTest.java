@@ -40,7 +40,7 @@ public class UserServiceTest {
     @Test(dataProvider = "createUserDataProvider")
     public void testCreateUser(User user, Integer expectedCode) throws Exception {
         Utils utilsMock = mock(Utils.class);
-        UserService userService = new UserService(null, utilsMock);
+        UserService userService = new UserService(utilsMock, null);
 
         User existingUser = new User();
         existingUser.setId(1);
@@ -54,7 +54,7 @@ public class UserServiceTest {
 
     @Test(dataProvider = "updateUserDataProvider")
     public void testUpdateUser(Integer id, User userToUpdate, User existingUser, Integer expectedStatus, User expectedUser) throws Exception {
-        UserService userService = new UserService(null, mock(Utils.class));
+        UserService userService = new UserService(mock(Utils.class), null);
         if (existingUser != null) userService.addUserForTest(existingUser);
 
         Integer actualStatus = userService.updateUser(id, userToUpdate);

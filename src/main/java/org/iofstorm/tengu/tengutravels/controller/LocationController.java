@@ -1,14 +1,12 @@
 package org.iofstorm.tengu.tengutravels.controller;
 
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import com.google.gson.Gson;
 import org.iofstorm.tengu.tengutravels.Utils;
+import org.iofstorm.tengu.tengutravels.model.Gender;
 import org.iofstorm.tengu.tengutravels.model.Location;
 import org.iofstorm.tengu.tengutravels.model.Mark;
 import org.iofstorm.tengu.tengutravels.service.LocationService;
 import org.iofstorm.tengu.tengutravels.service.VisitService;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
@@ -22,9 +20,6 @@ import org.springframework.web.bind.annotation.RequestParam;
 
 import javax.servlet.http.HttpServletRequest;
 import java.util.Map;
-import java.util.Objects;
-import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.Future;
 
 import static org.iofstorm.tengu.tengutravels.controller.ControllerHelper.NOT_FOUND;
 import static org.iofstorm.tengu.tengutravels.controller.ControllerHelper.OK;
@@ -39,10 +34,8 @@ import static org.iofstorm.tengu.tengutravels.model.Location.PLACE;
 @Controller
 @RequestMapping("/locations")
 public class LocationController {
-    private static final Logger log = LoggerFactory.getLogger(LocationController.class);
-
     @Autowired
-    private ObjectMapper objectMapper;
+    private Gson gson;
 
     @Autowired
     private VisitService visitService;
@@ -57,86 +50,52 @@ public class LocationController {
     private ControllerHelper controllerHelper;
 
     @RequestMapping(method = RequestMethod.GET, path = "/{locationId}", produces = MediaType.APPLICATION_JSON_VALUE)
-    public Future<ResponseEntity<String>> getLocationAsync(@PathVariable("locationId") Integer locationId) {
-        return CompletableFuture.supplyAsync(() -> {
-            if (locationId == null) return controllerHelper.badRequest();
-
-            Location location = locationService.getLocation(locationId);
-
-            if (location == null) return controllerHelper.notFound();
-
-            ResponseEntity<String> res;
-
-            try {
-                String locationStr = objectMapper.writeValueAsString(location);
-                res = ResponseEntity.ok()
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .contentLength(locationStr.getBytes().length)
-                        .body(locationStr);
-            } catch (JsonProcessingException e) {
-                log.error("json serialization error {}", e.getMessage());
-                res = controllerHelper.badRequest();
-            }
-            return res;
-        });
+    public ResponseEntity<String> getLocation(@PathVariable("locationId") Integer locationId) {
+        if (locationId == null) return controllerHelper.badRequest();
+        Location location = locationService.getLocationWithoutLock(locationId);
+        if (location == null) return controllerHelper.notFound();
+        String body = gson.toJson(location);
+        return ResponseEntity.ok()
+                .contentLength(body.getBytes().length)
+                .contentType(MediaType.APPLICATION_JSON)
+                .body(body);
     }
 
     @RequestMapping(method = RequestMethod.POST, path = "/new", consumes = MediaType.APPLICATION_JSON_VALUE, produces = MediaType.APPLICATION_JSON_VALUE)
-    public Future<ResponseEntity<String>> createLocationAsync(@RequestBody Location location) {
-        return CompletableFuture.supplyAsync(() -> {
-            if (!validateOnCreate(location)) return controllerHelper.badRequest();
-            Integer code = locationService.createLocation(location);
-            return Objects.equals(code, OK) ? controllerHelper.okEmpty() : controllerHelper.badRequest();
-        });
+    public ResponseEntity<String> createLocation(@RequestBody Location location) {
+        if (!validateOnCreate(location)) return controllerHelper.badRequest();
+        int code = locationService.createLocation(location);
+        return code == OK ? controllerHelper.okEmpty() : controllerHelper.badRequest();
     }
 
     @RequestMapping(method = RequestMethod.POST, path = "/{locationId}", consumes = MediaType.APPLICATION_JSON_VALUE, produces = MediaType.APPLICATION_JSON_VALUE)
-    public Future<ResponseEntity<String>> updateLocationAsync(@PathVariable("locationId") Integer locationId, @RequestBody Map<String, String> location) {
-        return CompletableFuture.supplyAsync(() -> {
-            if (locationId == null) return controllerHelper.badRequest();
+    public ResponseEntity<String> updateLocation(@PathVariable("locationId") Integer locationId, @RequestBody Map<String, String> location) {
+        if (locationId == null) return controllerHelper.badRequest();
 
-            Location newLocation = validateOnUpdate(location);
-            Integer code = locationService.updateLocation(locationId, newLocation);
+        Location newLocation = validateOnUpdate(location);
+        int code = locationService.updateLocation(locationId, newLocation);
 
-            if (code == OK) return controllerHelper.okEmpty();
-            if (code == NOT_FOUND) return controllerHelper.notFound();
-            else return controllerHelper.badRequest();
-        });
+        if (code == OK) return controllerHelper.okEmpty();
+        if (code == NOT_FOUND) return controllerHelper.notFound();
+        else return controllerHelper.badRequest();
     }
 
     @RequestMapping(method = RequestMethod.GET, path = "/{locationId}/avg", produces = MediaType.APPLICATION_JSON_VALUE)
-    public Future<ResponseEntity<String>> getAverageMarkAsync(@PathVariable("locationId") Integer locationId,
-                                                              @RequestParam(value = "fromDate", required = false) Long fromDate,
-                                                              @RequestParam(value = "toDate", required = false) Long toDate,
-                                                              @RequestParam(value = "fromAge", required = false) Integer fromAge,
-                                                              @RequestParam(value = "toAge", required = false) Integer toAge,
-                                                              @RequestParam(value = "gender", required = false) String gender) {
-        return CompletableFuture.supplyAsync(() -> {
-            if (locationId == null) return controllerHelper.badRequest();
-
-            if (gender != null && utils.notMorF(gender)) return controllerHelper.badRequest();
-
-            Mark mark = locationService.getAverageMark(locationId, fromDate, toDate, fromAge, toAge, gender);
-
-            if (mark == null) return controllerHelper.notFound();
-
-            ResponseEntity<String> res;
-            try {
-                String body = objectMapper.writeValueAsString(mark);
-                res = ResponseEntity.ok()
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .contentLength(body.getBytes().length)
-                        .body(body);
-            } catch (JsonProcessingException e) {
-                res = controllerHelper.badRequest();
-            }
-            return res;
-        });
-    }
-
-    @RequestMapping(path = "/ping", method = RequestMethod.GET)
-    public ResponseEntity<String> ping() {
-        return ResponseEntity.ok("ok");
+    public ResponseEntity<String> getAverageMark(@PathVariable("locationId") Integer locationId,
+                                                 @RequestParam(value = "fromDate", required = false) Long fromDate,
+                                                 @RequestParam(value = "toDate", required = false) Long toDate,
+                                                 @RequestParam(value = "fromAge", required = false) Integer fromAge,
+                                                 @RequestParam(value = "toAge", required = false) Integer toAge,
+                                                 @RequestParam(value = "gender", required = false) String gender) {
+        if (locationId == null) return controllerHelper.badRequest();
+        if (gender != null && utils.notMorF(gender)) return controllerHelper.badRequest();
+        Mark mark = locationService.getAverageMark(locationId, fromDate, toDate, fromAge, toAge, Gender.fromString(gender));
+        if (mark == null) return controllerHelper.notFound();
+        String body = gson.toJson(mark);
+        return ResponseEntity.ok()
+                .contentType(MediaType.APPLICATION_JSON)
+                .contentLength(body.getBytes().length)
+                .body(body);
     }
 
     @ExceptionHandler(Exception.class)
@@ -152,7 +111,7 @@ public class LocationController {
             return false;
         if (location.getCity() == null || (location.getCity() != null && location.getCity().length() > CITY_LENGTH))
             return false;
-        if (location.getDistance() == null) return false;
+        if (location.getDistance() == 0) return false;
         return true;
     }
 

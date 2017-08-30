@@ -11,12 +11,15 @@ import java.time.temporal.ChronoUnit;
 @Component
 public class Utils {
 
-    public Integer calcAge(long birthDate) {
+    public static final String MALE = "m";
+    public static final String FEMALE = "f";
+
+    public int calcAge(long birthDate) {
         LocalDate bd = LocalDateTime.ofEpochSecond(birthDate, 0, ZoneOffset.UTC).toLocalDate();
-        return Long.valueOf(ChronoUnit.YEARS.between(bd, DataLoader.NOW_TS)).intValue();
+        return (int)ChronoUnit.YEARS.between(bd, DataLoader.NOW_TS);
     }
 
     public boolean notMorF(String s) {
-        return !"m".equals(s) && !"f".equals(s);
+        return !MALE.equals(s) && !FEMALE.equals(s);
     }
 }

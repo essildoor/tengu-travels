@@ -1,18 +1,16 @@
 package org.iofstorm.tengu.tengutravels.service;
 
-import org.iofstorm.tengu.tengutravels.Utils;
+import org.iofstorm.tengu.tengutravels.model.Gender;
 import org.iofstorm.tengu.tengutravels.model.Location;
 import org.iofstorm.tengu.tengutravels.model.Mark;
 import org.iofstorm.tengu.tengutravels.model.Visit;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 import java.math.BigDecimal;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.locks.ReadWriteLock;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
@@ -23,40 +21,26 @@ import static org.iofstorm.tengu.tengutravels.controller.ControllerHelper.OK;
 
 @Service
 public class LocationService {
-    private static final Logger log = LoggerFactory.getLogger(LocationService.class);
+    public static final Map<Integer, Location> locations = new HashMap<>(810_000, 1f);
 
-    private final Map<Integer, Location> locations;
     private final ReadWriteLock lock;
-    private final VisitService visitService;
-    private final Utils utils;
 
-    public LocationService(VisitService visitService, Utils utils) {
-        locations = new HashMap<>();
+    @Autowired
+    private VisitService visitService;
+
+    public LocationService() {
         lock = new ReentrantReadWriteLock(true);
-        this.visitService = Objects.requireNonNull(visitService);
-        this.utils = Objects.requireNonNull(utils);
     }
 
-    public ReadWriteLock getLock() {
+    ReadWriteLock getLock() {
         return lock;
     }
 
-    public Location getLocation(Integer id) {
-        if (id == null) return null;
-        lock.readLock().lock();
-        try {
-            return locations.get(id);
-        } finally {
-            lock.readLock().unlock();
-        }
-    }
-
-    Location getLocationWithoutLock(Integer id) {
-        if (id == null) return null;
+    public Location getLocationWithoutLock(Integer id) {
         return locations.get(id);
     }
 
-    public Integer createLocation(Location location) {
+    public int createLocation(Location location) {
         lock.readLock().lock();
         try {
             if (locations.containsKey(location.getId())) return BAD_REQUEST;
@@ -78,7 +62,7 @@ public class LocationService {
         }
     }
 
-    public Integer updateLocation(Integer locationId, Location newLocation) {
+    public int updateLocation(Integer locationId, Location newLocation) {
         lock.readLock().lock();
         try {
             if (!locations.containsKey(locationId)) {
@@ -91,8 +75,8 @@ public class LocationService {
                 lock.writeLock().lock();
                 visitService.getLock().writeLock().lock();
                 try {
-                    locations.compute(locationId, (id, oldLoc) -> remapLocation(oldLoc, newLocation));
-                    visitService.updateVisitWithLocationWithoutLock(locationId, newLocation);
+                    Location updated = remapLocation(locations.get(locationId), newLocation);
+                    locations.put(locationId, updated);
                     return OK;
                 } finally {
                     lock.readLock().lock();
@@ -106,52 +90,41 @@ public class LocationService {
         }
     }
 
-    public Mark getAverageMark(Integer locationId, Long fromDate, Long toDate, Integer fromAge, Integer toAge, String gender) {
-        if (!exist(locationId)) return null;
+    public Mark getAverageMark(Integer locationId, Long fromDate, Long toDate, Integer fromAge, Integer toAge, Gender gender) {
+        if (!locations.containsKey(locationId)) return null;
         List<Visit> visitsByLocation = visitService.getVisitsByLocationId(locationId);
-        BigDecimal acc = BigDecimal.ZERO;
         int i = 0;
+        int acc = 0;
+        boolean fromDateIsPresent = fromDate != null;
+        boolean toDateIsPresent = toDate != null;
+        boolean genderIsPresent = gender != Gender.UNKNOWN;
+        boolean fromAgeIsPresent = fromAge != null;
+        boolean toAgeIsPresent = toAge != null;
         for (Visit v : visitsByLocation) {
-            if (fromDate != null && v.getVisitedAt() <= fromDate) continue;
-            if (toDate != null && v.getVisitedAt() >= toDate) continue;
-            if (fromAge != null && v.getUserAge() < fromAge) continue;
-            if (toAge != null && v.getUserAge() >= toAge) continue;
-            if (gender != null && !gender.equals(v.getUserGender())) continue;
-            acc = acc.add(BigDecimal.valueOf(v.getMark()));
+            if (fromDateIsPresent && v.getVisitedAt() <= fromDate) continue;
+            if (toDateIsPresent && v.getVisitedAt() >= toDate) continue;
+            if (genderIsPresent && gender != v.getUserGender()) continue;
+            if (fromAgeIsPresent && v.getUserAge() < fromAge) continue;
+            if (toAgeIsPresent && v.getUserAge() >= toAge) continue;
+
+            acc += v.getMark();
             i++;
         }
-        acc = acc.equals(BigDecimal.ZERO) ? BigDecimal.ZERO : acc.divide(BigDecimal.valueOf(i), 5, BigDecimal.ROUND_HALF_UP);
-        Mark mark = new Mark();
-        mark.setAvg(acc);
-        return mark;
+        BigDecimal avg;
+        if (acc == 0) avg = BigDecimal.ZERO;
+        else avg = BigDecimal.valueOf(acc).divide(BigDecimal.valueOf(i), 5, BigDecimal.ROUND_HALF_UP);
+        return new Mark(avg);
     }
 
     // used for data loading
-    public Integer load(List<Location> locationList) {
+    public void load(List<Location> locationList) {
         lock.writeLock().lock();
         try {
-            locationList.forEach(loc -> {
-                locations.put(loc.getId(), loc);
-            });
+            for (Location location : locationList) {
+                locations.put(location.getId(), location);
+            }
         } finally {
             lock.writeLock().unlock();
-        }
-        return locationList.size();
-    }
-
-    // used for data loading
-    Map<Integer, Location> getLocations(Set<Integer> ids) {
-        Map<Integer, Location> res = new HashMap<>(ids.size());
-        for (Integer id : ids) res.put(id, locations.get(id));
-        return res;
-    }
-
-    private boolean exist(Integer id) {
-        lock.readLock().lock();
-        try {
-            return locations.containsKey(id);
-        } finally {
-            lock.readLock().unlock();
         }
     }
 
@@ -159,8 +132,7 @@ public class LocationService {
         if (newLoc.getPlace() != null) oldLoc.setPlace(newLoc.getPlace());
         if (newLoc.getCity() != null) oldLoc.setCity(newLoc.getCity());
         if (newLoc.getCountry() != null) oldLoc.setCountry(newLoc.getCountry());
-        if (newLoc.getDistance() != null) oldLoc.setDistance(newLoc.getDistance());
-
+        if (newLoc.getDistance() != 0) oldLoc.setDistance(newLoc.getDistance());
         return oldLoc;
     }
 }

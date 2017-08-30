@@ -1,14 +1,12 @@
 package org.iofstorm.tengu.tengutravels.controller;
 
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import com.google.gson.Gson;
 import org.iofstorm.tengu.tengutravels.Utils;
+import org.iofstorm.tengu.tengutravels.model.Gender;
 import org.iofstorm.tengu.tengutravels.model.ShortVisits;
 import org.iofstorm.tengu.tengutravels.model.User;
 import org.iofstorm.tengu.tengutravels.service.UserService;
 import org.iofstorm.tengu.tengutravels.service.VisitService;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
@@ -25,9 +23,6 @@ import org.springframework.web.method.annotation.MethodArgumentTypeMismatchExcep
 
 import javax.servlet.http.HttpServletRequest;
 import java.util.Map;
-import java.util.Objects;
-import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.Future;
 
 import static org.iofstorm.tengu.tengutravels.controller.ControllerHelper.NOT_FOUND;
 import static org.iofstorm.tengu.tengutravels.controller.ControllerHelper.OK;
@@ -45,103 +40,61 @@ import static org.iofstorm.tengu.tengutravels.model.User.NAME_LENGTH;
 @RestController
 @RequestMapping("/users")
 public class UserController {
-    private static final Logger log = LoggerFactory.getLogger(UserService.class);
-
-    private final UserService userService;
-    private final VisitService visitService;
-    private final ControllerHelper controllerHelper;
-    private final ObjectMapper objectMapper;
-    private final Utils utils;
 
     @Autowired
-    public UserController(UserService userService, VisitService visitService, ControllerHelper controllerHelper,
-                          ObjectMapper objectMapper, Utils utils) {
-        this.userService = Objects.requireNonNull(userService);
-        this.visitService = Objects.requireNonNull(visitService);
-        this.controllerHelper = Objects.requireNonNull(controllerHelper);
-        this.objectMapper = Objects.requireNonNull(objectMapper);
-        this.utils = Objects.requireNonNull(utils);
-    }
+    private UserService userService;
+    @Autowired
+    private VisitService visitService;
+    @Autowired
+    private ControllerHelper controllerHelper;
+    @Autowired
+    private Gson gson;
+    @Autowired
+    private Utils utils;
 
     @RequestMapping(method = RequestMethod.GET, path = "/{userId}")
-    public Future<ResponseEntity<String>> getUserAsync(@PathVariable("userId") Integer userId) {
-        return CompletableFuture.supplyAsync(() -> {
-            if (userId == null) return controllerHelper.badRequest();
-
-            User user = userService.getUser(userId);
-
-            if (user == null) return controllerHelper.notFound();
-
-            ResponseEntity<String> res;
-            try {
-                String userStr = objectMapper.writeValueAsString(user);
-                res = ResponseEntity.status(HttpStatus.OK)
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .contentLength(userStr.getBytes().length)
-                        .body(userStr);
-            } catch (JsonProcessingException e) {
-                log.error("json serialization error {}", e.getMessage());
-                res = controllerHelper.badRequest();
-            }
-            return res;
-        });
+    public ResponseEntity<String> getUser(@PathVariable("userId") Integer userId) {
+        if (userId == null) return controllerHelper.badRequest();
+        User user = userService.getUserWithoutLock(userId);
+        if (user == null) return controllerHelper.notFound();
+        String userStr = gson.toJson(user);
+        return ResponseEntity.status(HttpStatus.OK)
+                .contentType(MediaType.APPLICATION_JSON)
+                .contentLength(userStr.getBytes().length)
+                .body(userStr);
     }
 
     @RequestMapping(method = RequestMethod.GET, path = "/{userId}/visits", produces = MediaType.APPLICATION_JSON_UTF8_VALUE)
-    public Future<ResponseEntity<String>> getUserVisitsAsync(@PathVariable("userId") Integer userId,
-                                                             @RequestParam(value = "fromDate", required = false) Long fromDate,
-                                                             @RequestParam(value = "toDate", required = false) Long toDate,
-                                                             @RequestParam(value = "country", required = false) String country,
-                                                             @RequestParam(value = "toDistance", required = false) Integer toDistance) {
-        return CompletableFuture.supplyAsync(() -> {
-            if (userId == null) return controllerHelper.badRequest();
-
-            ShortVisits shortVisits = visitService.getUserVisits(userId, fromDate, toDate, country, toDistance);
-
-            if (shortVisits == null) return controllerHelper.notFound();
-
-            ResponseEntity<String> res;
-            try {
-                String visits = objectMapper.writeValueAsString(shortVisits);
-                res = ResponseEntity.ok()
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .contentLength(visits.getBytes().length)
-                        .body(visits);
-            } catch (JsonProcessingException e) {
-                log.error("json serialization error {}", e.getMessage());
-                res = controllerHelper.badRequest();
-            }
-            return res;
-        });
+    public ResponseEntity<String> getUserVisits(@PathVariable("userId") Integer userId,
+                                                @RequestParam(value = "fromDate", required = false) Long fromDate,
+                                                @RequestParam(value = "toDate", required = false) Long toDate,
+                                                @RequestParam(value = "country", required = false) String country,
+                                                @RequestParam(value = "toDistance", required = false) Integer toDistance) {
+        if (userId == null) return controllerHelper.badRequest();
+        ShortVisits shortVisits = visitService.getUserVisits(userId, fromDate, toDate, country, toDistance);
+        if (shortVisits == null) return controllerHelper.notFound();
+        String visits = gson.toJson(shortVisits);
+        return ResponseEntity.ok()
+                .contentType(MediaType.APPLICATION_JSON)
+                .contentLength(visits.getBytes().length)
+                .body(visits);
     }
 
     @RequestMapping(method = RequestMethod.POST, path = "/new", produces = MediaType.APPLICATION_JSON_VALUE, consumes = MediaType.APPLICATION_JSON_VALUE)
-    public Future<ResponseEntity<String>> createUserAsync(@RequestBody User user) {
-        return CompletableFuture.supplyAsync(() -> {
-            if (!validateOnCreate(user)) return controllerHelper.badRequest();
-            Integer code = userService.createUser(user);
-            return Objects.equals(code, OK) ? controllerHelper.okEmpty() : controllerHelper.badRequest();
-        });
+    public ResponseEntity<String> createUser(@RequestBody User user) {
+        if (!validateOnCreate(user)) return controllerHelper.badRequest();
+        int code = userService.createUser(user);
+        return code == OK ? controllerHelper.okEmpty() : controllerHelper.badRequest();
     }
 
     @RequestMapping(method = RequestMethod.POST, path = "/{userId}", produces = MediaType.APPLICATION_JSON_VALUE, consumes = MediaType.APPLICATION_JSON_VALUE)
-    public Future<ResponseEntity<String>> updateUserAsync(@PathVariable("userId") Integer userId, @RequestBody Map<String, String> userProps) {
-        return CompletableFuture.supplyAsync(() -> {
-            if (userId == null) return controllerHelper.badRequest();
-
-            User newUser = validateUpdate(userProps);
-
-            Integer code = userService.updateUser(userId, newUser);
-
-            if (code == OK) return controllerHelper.okEmpty();
-            else if (code == NOT_FOUND) return controllerHelper.notFound();
-            else return controllerHelper.badRequest();
-        });
-    }
-
-    @RequestMapping(path = "/ping", method = RequestMethod.GET)
-    public ResponseEntity<String> ping() {
-        return ResponseEntity.ok("ok");
+    public ResponseEntity<String> updateUser(@PathVariable("userId") Integer userId, @RequestBody Map<String, String> userProps) {
+        if (userId == null) return controllerHelper.badRequest();
+        User newUser = validateUpdate(userProps);
+        int code = userService.updateUser(userId, newUser);
+        if (code == OK) return controllerHelper.okEmpty();
+        else if (code == NOT_FOUND) return controllerHelper.notFound();
+        else return controllerHelper.badRequest();
     }
 
     @ExceptionHandler(Exception.class)
@@ -190,7 +143,7 @@ public class UserController {
             String o = userProps.get(GENDER);
             if (o != null) {
                 if (utils.notMorF(o)) return null;
-                else user.setGender(o);
+                else user.setGender(Gender.fromString(o));
             } else {
                 return null;
             }
@@ -199,9 +152,10 @@ public class UserController {
             String o = userProps.get(BIRTH_DATE);
             if (o != null) {
                 try {
-                    Long bd = Long.valueOf(o);
-                    if (bd < BIRTH_DATE_MIN || bd > BIRTH_DATE_MAX) return null;
-                    else {
+                    long bd = Long.valueOf(o);
+                    if (bd < BIRTH_DATE_MIN || bd > BIRTH_DATE_MAX) {
+                        return null;
+                    } else {
                         user.setBirthDate(bd);
                         user.setAge(utils.calcAge(bd));
                     }
@@ -225,12 +179,12 @@ public class UserController {
             return false;
         if (user.getLastName() == null || (user.getLastName() != null && user.getLastName().length() > NAME_LENGTH))
             return false;
-        if (user.getBirthDate() == null || (user.getBirthDate() != null && (user.getBirthDate() < BIRTH_DATE_MIN || user.getBirthDate() > BIRTH_DATE_MAX))) {
+        if (user.getBirthDate() == Long.MIN_VALUE || (user.getBirthDate() < BIRTH_DATE_MIN || user.getBirthDate() > BIRTH_DATE_MAX)) {
             return false;
         } else {
             user.setAge(utils.calcAge(user.getBirthDate()));
         }
-        if (user.getGender() == null || (user.getGender() != null && utils.notMorF(user.getGender()))) return false;
+        if (user.getGender() == null || (user.getGender() != null && user.getGender() == Gender.UNKNOWN)) return false;
         return true;
     }
 }

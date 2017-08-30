@@ -1,8 +1,10 @@
 package org.iofstorm.tengu.tengutravels.controller;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import com.google.gson.Gson;
 import org.iofstorm.tengu.tengutravels.model.Visit;
+import org.iofstorm.tengu.tengutravels.service.LocationService;
+import org.iofstorm.tengu.tengutravels.service.UserService;
 import org.iofstorm.tengu.tengutravels.service.VisitService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -20,9 +22,6 @@ import org.springframework.web.method.annotation.MethodArgumentTypeMismatchExcep
 
 import javax.servlet.http.HttpServletRequest;
 import java.util.Map;
-import java.util.Objects;
-import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.Future;
 
 import static org.iofstorm.tengu.tengutravels.controller.ControllerHelper.OK;
 import static org.iofstorm.tengu.tengutravels.model.Location.VISITED_AT_MAX;
@@ -38,71 +37,44 @@ import static org.iofstorm.tengu.tengutravels.model.Visit.VISITED_AT;
 public class VisitController {
     private static final Logger log = LoggerFactory.getLogger(VisitController.class);
 
-    private final VisitService visitService;
-    private final ControllerHelper controllerHelper;
-
     @Autowired
-    private ObjectMapper objectMapper;
-
+    private VisitService visitService;
     @Autowired
-    public VisitController(VisitService visitService, ControllerHelper controllerHelper) {
-        this.visitService = Objects.requireNonNull(visitService);
-        this.controllerHelper = Objects.requireNonNull(controllerHelper);
-    }
+    private UserService userService;
+    @Autowired
+    private LocationService locationService;
+    @Autowired
+    private ControllerHelper controllerHelper;
+    @Autowired
+    private Gson gson;
 
     @RequestMapping(method = RequestMethod.GET, path = "/{visitId}", produces = MediaType.APPLICATION_JSON_VALUE)
-    public Future<ResponseEntity<String>> getVisitAsync(@PathVariable("visitId") Integer visitId) throws JsonProcessingException {
-        return CompletableFuture.supplyAsync(() -> {
-            if (visitId == null) return controllerHelper.badRequest();
-
-            Visit visit = visitService.getVisit(visitId);
-
-            if (visit == null) return controllerHelper.notFound();
-
-            ResponseEntity<String> res;
-            try {
-                String body = objectMapper.writeValueAsString(visit);
-                res = ResponseEntity.ok()
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .contentLength(body.getBytes().length)
-                        .body(body);
-            } catch (JsonProcessingException e) {
-                log.error("json serialization error {}", e.getMessage());
-                res = controllerHelper.badRequest();
-            }
-            return res;
-        });
+    public ResponseEntity<String> getVisit(@PathVariable("visitId") Integer visitId) throws JsonProcessingException {
+        if (visitId == null) return controllerHelper.badRequest();
+        Visit visit = visitService.getVisitWithoutLock(visitId);
+        if (visit == null) return controllerHelper.notFound();
+        String body = gson.toJson(visit);
+        return ResponseEntity.ok()
+                .contentType(MediaType.APPLICATION_JSON)
+                .contentLength(body.getBytes().length)
+                .body(body);
     }
 
     @RequestMapping(method = RequestMethod.POST, path = "/new", produces = MediaType.APPLICATION_JSON_VALUE)
-    public Future<ResponseEntity<String>> createVisitAsync(@RequestBody Visit visit) {
-        return CompletableFuture.supplyAsync(() -> {
-            if (!validateOnCreate(visit)) return controllerHelper.badRequest();
-            Integer code = visitService.createVisit(visit);
-            return Objects.equals(code, OK) ? controllerHelper.okEmpty() : controllerHelper.badRequest();
-        });
+    public ResponseEntity<String> createVisit(@RequestBody Visit visit) {
+        if (!validateOnCreate(visit)) return controllerHelper.badRequest();
+        int code = visitService.createVisit(visit);
+        return code == OK ? controllerHelper.okEmpty() : controllerHelper.badRequest();
     }
 
     @RequestMapping(method = RequestMethod.POST, path = "/{visitId}", produces = MediaType.APPLICATION_JSON_VALUE)
-    public Future<ResponseEntity<String>> updateVisitAsync(@PathVariable("visitId") Integer visitId, @RequestBody Map<String, String> visitProps) {
-        return CompletableFuture.supplyAsync(() -> {
-            if (visitId == null) return controllerHelper.badRequest();
-
-            if (!visitService.visitExist(visitId)) return controllerHelper.notFound();
-
-            Visit visit = validateOnUpdate(visitProps);
-
-            if (visit == null) return controllerHelper.badRequest();
-
-            visitService.updateVisit(visitId, visit);
-
-            return controllerHelper.okEmpty();
-        });
-    }
-
-    @RequestMapping(path = "/ping", method = RequestMethod.GET)
-    public ResponseEntity<String> ping() {
-        return ResponseEntity.ok("ok");
+    public ResponseEntity<String> updateVisit(@PathVariable("visitId") Integer visitId, @RequestBody Map<String, String> visitProps) {
+        if (visitId == null) return controllerHelper.badRequest();
+        if (!visitService.visitExist(visitId)) return controllerHelper.notFound();
+        Visit visit = validateOnUpdate(visitProps);
+        if (visit == null) return controllerHelper.badRequest();
+        visitService.updateVisit(visitId, visit);
+        return controllerHelper.okEmpty();
     }
 
     @ExceptionHandler(Exception.class)
@@ -122,10 +94,8 @@ public class VisitController {
         if (visit.getId() == null) return false;
         if (visit.getLocationId() == null) return false;
         if (visit.getUserId() == null) return false;
-        if (visit.getVisitedAt() == null || (visit.getVisitedAt() != null && (visit.getVisitedAt() < VISITED_AT_MIN || visit.getVisitedAt() > VISITED_AT_MAX)))
-            return false;
-        if (visit.getMark() == null || (visit.getMark() != null && (visit.getMark() < 0 || visit.getMark() > 5)))
-            return false;
+        if (visit.getVisitedAt() < VISITED_AT_MIN || visit.getVisitedAt() > VISITED_AT_MAX) return false;
+        if (visit.getMark() < 0 || visit.getMark() > 5) return false;
         return true;
     }
 
@@ -136,7 +106,7 @@ public class VisitController {
             if (o == null) return null;
             try {
                 Integer.valueOf(o);
-            } catch(NumberFormatException e) {
+            } catch (NumberFormatException e) {
                 return null;
             }
         }
@@ -145,7 +115,7 @@ public class VisitController {
             if (o == null) return null;
             try {
                 Integer.valueOf(o);
-            } catch(NumberFormatException e) {
+            } catch (NumberFormatException e) {
                 return null;
             }
         }
@@ -156,7 +126,7 @@ public class VisitController {
             try {
                 va = Long.valueOf(o);
                 if (va < VISITED_AT_MIN || va > VISITED_AT_MAX) return null;
-            } catch(NumberFormatException e) {
+            } catch (NumberFormatException e) {
                 return null;
             }
         }
@@ -167,15 +137,17 @@ public class VisitController {
             try {
                 m = Integer.valueOf(o);
                 if (m < 0 || m > 5) return null;
-            } catch(NumberFormatException e) {
+            } catch (NumberFormatException e) {
                 return null;
             }
         }
 
         // all is fine here, huh
         Visit visit = new Visit();
-        if (visitProperties.containsKey(LOCATION_ID)) visit.setLocationId(Integer.valueOf(visitProperties.get(LOCATION_ID)));
-        if (visitProperties.containsKey(USER_ID)) visit.setUserId(Integer.valueOf(visitProperties.get(USER_ID)));
+        if (visitProperties.containsKey(LOCATION_ID))
+            visit.setLocation(locationService.getLocationWithoutLock(Integer.valueOf(visitProperties.get(LOCATION_ID))));
+        if (visitProperties.containsKey(USER_ID))
+            visit.setUser(userService.getUserWithoutLock(Integer.valueOf(visitProperties.get(USER_ID))));
         if (visitProperties.containsKey(VISITED_AT)) visit.setVisitedAt(Long.valueOf(visitProperties.get(VISITED_AT)));
         if (visitProperties.containsKey(MARK)) visit.setMark(Integer.valueOf(visitProperties.get(MARK)));
         return visit;

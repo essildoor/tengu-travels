@@ -1,16 +1,13 @@
 package org.iofstorm.tengu.tengutravels.model;
 
-import com.fasterxml.jackson.annotation.JsonIgnore;
-import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
-import com.fasterxml.jackson.annotation.JsonInclude;
-import com.fasterxml.jackson.annotation.JsonProperty;
-import org.apache.commons.lang3.builder.ToStringBuilder;
+import com.google.gson.TypeAdapter;
+import com.google.gson.stream.JsonReader;
+import com.google.gson.stream.JsonWriter;
 
+import java.io.IOException;
 import java.time.LocalDate;
 import java.time.ZoneId;
 
-@JsonInclude(JsonInclude.Include.NON_NULL)
-@JsonIgnoreProperties(ignoreUnknown = true)
 public class User {
     public static final String ID = "id";
     public static final String FIRST_NAME = "first_name";
@@ -25,28 +22,24 @@ public class User {
     public static final Long BIRTH_DATE_MAX = LocalDate.of(1999, 1, 1).atStartOfDay().atZone(ZoneId.systemDefault()).toEpochSecond();
 
     // 32 bit int unique
-    private Integer id;
+    Integer id;
 
     // 0-100 unicode string unique
     private String email;
 
     // 0-50 unicode string
-    @JsonProperty("first_name")
     private String firstName;
 
     // 0-50 unicode string
-    @JsonProperty("last_name")
     private String lastName;
 
     // m - male, f - female
-    private String gender;
+    Gender gender;
 
     // long ms from 1970
-    @JsonProperty("birth_date")
-    private Long birthDate;
+    private long birthDate = Long.MIN_VALUE;
 
-    @JsonIgnore
-    private int age;
+    int age = Integer.MIN_VALUE;
 
     public Integer getId() {
         return id;
@@ -80,23 +73,23 @@ public class User {
         this.lastName = lastName;
     }
 
-    public String getGender() {
+    public Gender getGender() {
         return gender;
     }
 
-    public void setGender(String gender) {
+    public void setGender(Gender gender) {
         this.gender = gender;
     }
 
-    public Long getBirthDate() {
+    public long getBirthDate() {
         return birthDate;
     }
 
-    public void setBirthDate(Long birthDate) {
+    public void setBirthDate(long birthDate) {
         this.birthDate = birthDate;
     }
 
-    public Integer getAge() {
+    public int getAge() {
         return age;
     }
 
@@ -104,15 +97,47 @@ public class User {
         this.age = age;
     }
 
-    @Override
-    public String toString() {
-        return new ToStringBuilder(this)
-                .append("id", id)
-                .append("email", email)
-                .append("firstName", firstName)
-                .append("lastName", lastName)
-                .append("gender", gender)
-                .append("birthDate", birthDate)
-                .build();
+    public static class UserAdapter extends TypeAdapter<User> {
+
+        @Override
+        public void write(JsonWriter out, User value) throws IOException {
+            out.beginObject();
+            out.name(ID).value(value.getId());
+            out.name(EMAIL).value(value.getEmail());
+            out.name(FIRST_NAME).value(value.getFirstName());
+            out.name(LAST_NAME).value(value.getLastName());
+            out.name(GENDER).value(value.getGender().getVal());
+            out.name(BIRTH_DATE).value(value.getBirthDate());
+            out.endObject();
+        }
+
+        @Override
+        public User read(JsonReader in) throws IOException {
+            User user = new User();
+            in.beginObject();
+            while (in.hasNext()) {
+                switch (in.nextName()) {
+                    case ID:
+                        user.setId(in.nextInt());
+                        break;
+                    case EMAIL:
+                        user.setEmail(in.nextString());
+                        break;
+                    case FIRST_NAME:
+                        user.setFirstName(in.nextString());
+                        break;
+                    case LAST_NAME:
+                        user.setLastName(in.nextString());
+                        break;
+                    case GENDER:
+                        user.setGender(Gender.fromString(in.nextString()));
+                        break;
+                    case BIRTH_DATE:
+                        user.setBirthDate(in.nextLong());
+                }
+            }
+            in.endObject();
+            return user;
+        }
     }
 }

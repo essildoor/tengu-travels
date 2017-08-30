@@ -1,12 +1,13 @@
 package org.iofstorm.tengu.tengutravels.model;
 
-import com.fasterxml.jackson.annotation.JsonIgnore;
-import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
-import com.fasterxml.jackson.annotation.JsonInclude;
-import com.fasterxml.jackson.annotation.JsonProperty;
+import com.google.gson.TypeAdapter;
+import com.google.gson.stream.JsonReader;
+import com.google.gson.stream.JsonWriter;
+import org.iofstorm.tengu.tengutravels.service.LocationService;
+import org.iofstorm.tengu.tengutravels.service.UserService;
 
-@JsonInclude(JsonInclude.Include.NON_NULL)
-@JsonIgnoreProperties(ignoreUnknown = true)
+import java.io.IOException;
+
 public class Visit {
     public static final String LOCATION_ID = "location";
     public static final String USER_ID = "user";
@@ -17,35 +18,15 @@ public class Visit {
     // 32 bit int unique
     private Integer id;
 
-    // 32 bit int
-    @JsonProperty("location")
-    private Integer locationId;
-
-    // 32 bit int
-    @JsonProperty("user")
-    private Integer userId;
-
     // timestamp, 01.01.2000 - 01.01.2015
-    @JsonProperty("visited_at")
-    private Long visitedAt;
+    private long visitedAt = Long.MIN_VALUE;
 
     // int 0 - 5
-    private Integer mark;
+    private int mark = Integer.MIN_VALUE;
 
-    @JsonIgnore
-    private String locationCountry;
+    public Location location;
 
-    @JsonIgnore
-    private Integer locationDistance;
-
-    @JsonIgnore
-    private String locationPlace;
-
-    @JsonIgnore
-    private Integer userAge;
-
-    @JsonIgnore
-    private String userGender;
+    public User user;
 
     public Integer getId() {
         return id;
@@ -56,75 +37,55 @@ public class Visit {
     }
 
     public Integer getLocationId() {
-        return locationId;
-    }
-
-    public void setLocationId(Integer locationId) {
-        this.locationId = locationId;
+        return location == null ? null : location.id;
     }
 
     public Integer getUserId() {
-        return userId;
+        return user == null ? null : user.id;
     }
 
-    public void setUserId(Integer userId) {
-        this.userId = userId;
-    }
-
-    public Long getVisitedAt() {
+    public long getVisitedAt() {
         return visitedAt;
     }
 
-    public void setVisitedAt(Long visitedAt) {
+    public void setVisitedAt(long visitedAt) {
         this.visitedAt = visitedAt;
     }
 
-    public Integer getMark() {
+    public int getMark() {
         return mark;
     }
 
-    public void setMark(Integer mark) {
+    public void setMark(int mark) {
         this.mark = mark;
     }
 
+    public void setLocation(Location location) {
+        this.location = location;
+    }
+
+    public void setUser(User user) {
+        this.user = user;
+    }
+
     public String getLocationCountry() {
-        return locationCountry;
+        return location.country;
     }
 
-    public void setLocationCountry(String locationCountry) {
-        this.locationCountry = locationCountry;
-    }
-
-    public Integer getLocationDistance() {
-        return locationDistance;
-    }
-
-    public void setLocationDistance(Integer locationDistance) {
-        this.locationDistance = locationDistance;
+    public int getLocationDistance() {
+        return location.distance;
     }
 
     public String getLocationPlace() {
-        return locationPlace;
+        return location.place;
     }
 
-    public void setLocationPlace(String locationPlace) {
-        this.locationPlace = locationPlace;
+    public int getUserAge() {
+        return user.age;
     }
 
-    public Integer getUserAge() {
-        return userAge;
-    }
-
-    public void setUserAge(Integer userAge) {
-        this.userAge = userAge;
-    }
-
-    public String getUserGender() {
-        return userGender;
-    }
-
-    public void setUserGender(String userGender) {
-        this.userGender = userGender;
+    public Gender getUserGender() {
+        return user.gender;
     }
 
     @Override
@@ -134,11 +95,51 @@ public class Visit {
 
         Visit visit = (Visit) o;
 
-        return id.equals(visit.id);
+        return visitedAt == visit.visitedAt;
     }
 
     @Override
     public int hashCode() {
-        return id.hashCode();
+        return (int) (visitedAt ^ (visitedAt >>> 32));
+    }
+
+    public static class VisitAdapter extends TypeAdapter<Visit> {
+
+        @Override
+        public void write(JsonWriter out, Visit value) throws IOException {
+            out.beginObject();
+            out.name(ID).value(value.getId());
+            out.name(USER_ID).value(value.getUserId());
+            out.name(LOCATION_ID).value(value.getLocationId());
+            out.name(VISITED_AT).value(value.getVisitedAt());
+            out.name(MARK).value(value.getMark());
+            out.endObject();
+        }
+
+        @Override
+        public Visit read(JsonReader in) throws IOException {
+            Visit visit = new Visit();
+            in.beginObject();
+            while (in.hasNext()) {
+                switch (in.nextName()) {
+                    case ID:
+                        visit.setId(in.nextInt());
+                        break;
+                    case USER_ID:
+                        visit.setUser(UserService.users.get(in.nextInt()));
+                        break;
+                    case LOCATION_ID:
+                        visit.setLocation(LocationService.locations.get(in.nextInt()));
+                        break;
+                    case VISITED_AT:
+                        visit.setVisitedAt(in.nextLong());
+                        break;
+                    case MARK:
+                        visit.setMark(in.nextInt());
+                }
+            }
+            in.endObject();
+            return visit;
+        }
     }
 }

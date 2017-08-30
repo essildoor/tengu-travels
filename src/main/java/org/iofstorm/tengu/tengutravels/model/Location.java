@@ -1,14 +1,13 @@
 package org.iofstorm.tengu.tengutravels.model;
 
-import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
-import com.fasterxml.jackson.annotation.JsonInclude;
-import org.apache.commons.lang3.builder.ToStringBuilder;
+import com.google.gson.TypeAdapter;
+import com.google.gson.stream.JsonReader;
+import com.google.gson.stream.JsonWriter;
 
+import java.io.IOException;
 import java.time.LocalDate;
 import java.time.ZoneId;
 
-@JsonInclude(JsonInclude.Include.NON_NULL)
-@JsonIgnoreProperties(ignoreUnknown = true)
 public class Location {
     public static final String ID = "id";
     public static final String PLACE = "place";
@@ -22,19 +21,30 @@ public class Location {
     public static final Long VISITED_AT_MAX = LocalDate.of(2015, 1, 1).atStartOfDay().atZone(ZoneId.systemDefault()).toEpochSecond();
 
     // 32 bit int unique
-    private Integer id;
+    Integer id;
 
     // unbounded string
-    private String place;
+    String place;
 
     // unicode string 0-50
-    private String country;
+    String country;
 
     // unicode string 0-50
     private String city;
 
     // 32 bit int
-    private Integer distance;
+    int distance;
+
+    public Location() {
+    }
+
+    public Location(Integer id, String place, String country, String city, Integer distance) {
+        this.id = id;
+        this.place = place;
+        this.country = country;
+        this.city = city;
+        this.distance = distance;
+    }
 
     public Integer getId() {
         return id;
@@ -68,22 +78,51 @@ public class Location {
         this.city = city;
     }
 
-    public Integer getDistance() {
+    public int getDistance() {
         return distance;
     }
 
-    public void setDistance(Integer distance) {
+    public void setDistance(int distance) {
         this.distance = distance;
     }
 
-    @Override
-    public String toString() {
-        return new ToStringBuilder(this)
-                .append("id", id)
-                .append("place", place)
-                .append("country", country)
-                .append("city", city)
-                .append("distance", distance)
-                .build();
+    public static class LocationAdapter extends TypeAdapter<Location> {
+
+        @Override
+        public void write(JsonWriter out, Location value) throws IOException {
+            out.beginObject();
+            out.name(ID).value(value.getId());
+            out.name(PLACE).value(value.getPlace());
+            out.name(COUNTRY).value(value.getCountry());
+            out.name(CITY).value(value.getCity());
+            out.name(DISTANCE).value(value.getDistance());
+            out.endObject();
+        }
+
+        @Override
+        public Location read(JsonReader in) throws IOException {
+            Location location = new Location();
+            in.beginObject();
+            while (in.hasNext()) {
+                switch (in.nextName()) {
+                    case ID:
+                        location.setId(in.nextInt());
+                        break;
+                    case PLACE:
+                        location.setPlace(in.nextString());
+                        break;
+                    case COUNTRY:
+                        location.setCountry(in.nextString());
+                        break;
+                    case CITY:
+                        location.setCity(in.nextString());
+                        break;
+                    case DISTANCE:
+                        location.setDistance(in.nextInt());
+                }
+            }
+            in.endObject();
+            return location;
+        }
     }
 }
